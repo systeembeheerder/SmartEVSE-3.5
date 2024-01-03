@@ -3511,9 +3511,11 @@ void validate_settings(void) {
     if (RFIDReader == 5) {
        DeleteAllRFID();
     }
-    // If mainsmeter disabled we can only run in Normal Mode
-    if (!MainsMeter)
+    // If mainsmeter disabled we can only run in Normal Mode, and we can't have LoadBalancing
+    if (!MainsMeter) {
         Mode = MODE_NORMAL;
+        LoadBl = 0;
+    }
 
     // Update master node config
     Node[0].EVMeter = EVMeter;
