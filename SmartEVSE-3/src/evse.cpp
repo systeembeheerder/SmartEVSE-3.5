@@ -2387,10 +2387,7 @@ uint8_t PollEVNode = NR_EVSES;
                     ModbusRequest++;
                     // fall through
                 default:
-                    if (Mode) {                                                 // Smart/Solar mode
-                        if ((ErrorFlags & CT_NOCOMM) == 0) UpdateCurrentData();      // No communication error with Sensorbox /Kwh meter?
-                                                                                // then update the data and send broadcast to all connected EVSE's
-                    } else {                                                    // Normal Mode
+                    if (Mode == MODE_NORMAL) {                                                 // Smart/Solar mode
                         CalcBalancedCurrent(0);                                 // Calculate charge current for connected EVSE's
                         if (LoadBl == 1) BroadcastCurrent();                    // Send to all EVSE's (only in Master mode)
                         if ((State == STATE_B || State == STATE_C) && !CPDutyOverride) SetCurrent(Balanced[0]); // set PWM output for Master
