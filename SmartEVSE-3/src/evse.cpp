@@ -1791,11 +1791,26 @@ void UpdateCurrentData(void) {
     // reset Imeasured value (grid power used)
     Imeasured = (MaxMains) * -20;                                               // init to 0 is problematic with negative Irms values, so init to -2x Maxmains
     Imeasured_EV = (MaxCircuit) * -20;
+    int batteryPerPhase = getBatteryCurrent() / 3;
+#if FAKE_SUNNY_DAY
+    int32_t temp[3]={0, 0, 0};
+    temp[0] = INJECT_CURRENT_L1 * 10;                   //Irms is in units of 100mA
+    temp[1] = INJECT_CURRENT_L2 * 10;
+    temp[2] = INJECT_CURRENT_L3 * 10;
+#endif
+    Isum = 0;
     for (x=0; x<3; x++) {
+#if FAKE_SUNNY_DAY
+        Irms[x] = Irms[x] - temp[x];
+#endif
+        IrmsOriginal[x] = Irms[x];
+        Irms[x] -= batteryPerPhase;
     // Imeasured holds highest Irms of all channels
         if (Irms[x] > Imeasured) Imeasured = Irms[x];
         if (Irms_EV[x] > Imeasured_EV) Imeasured_EV = Irms_EV[x];
+        Isum = Isum + Irms[x];
     }
+
     //sanity check
     if (Imeasured == (MaxMains) * -20) {                                        // if it equals the initialized value, something went wrong!
         _LOG_A("UpdateCurrentData: Imeasured=%.1f, this looks wrong, correcting it to 0 for safety!", (float)Imeasured/10);
@@ -2461,14 +2476,6 @@ void mqtt_receive_callback(const String &topic, const String &payload) {
             Irms[1] = L2;
             Irms[2] = L3;
 
-            int batteryPerPhase = getBatteryCurrent() / 3;
-            Isum = 0;
-            for (int x = 0; x < 3; x++) {
-                IrmsOriginal[x] = Irms[x];
-                Irms[x] -= batteryPerPhase;
-                Isum = Isum + Irms[x];
-            }
-
             UpdateCurrentData();
         }
     } else if (topic == MQTTprefix + "/Set/EVMeter") {
@@ -3093,24 +3100,10 @@ ModbusMessage MBMainsMeterResponse(ModbusMessage request) {
             // Calculate Isum (for nodes and master)
 
             phasesLastUpdate=time(NULL);
-            Isum = 0;
-            int batteryPerPhase = getBatteryCurrent() / 3; // Divide the battery current per phase to spread evenly
-#if FAKE_SUNNY_DAY
-            int32_t temp[3]={0, 0, 0};
-            temp[0] = INJECT_CURRENT_L1 * 10;                   //Irms is in units of 100mA
-            temp[1] = INJECT_CURRENT_L2 * 10;
-            temp[2] = INJECT_CURRENT_L3 * 10;
-#endif
             for (x = 0; x < 3; x++) {
-                // Calculate difference of Mains and PV electric meter
                 Irms[x] = (signed int)(CM[x] / 100);            // Convert to AMPERE * 10
-#if FAKE_SUNNY_DAY
-                Irms[x] = Irms[x] - temp[x];
-#endif
-                IrmsOriginal[x] = Irms[x];
-                Irms[x] -= batteryPerPhase;
-                Isum = Isum + Irms[x];
             }
+            UpdateCurrentData();
         }
         else
             StoreEnergyResponse(MainsMeter, Mains_import_active_energy, Mains_export_active_energy);
@@ -4133,20 +4126,15 @@ void StartwebServer(void) {
                     Irms[1] = request->getParam("L2")->value().toInt();
                     Irms[2] = request->getParam("L3")->value().toInt();
 
-                    int batteryPerPhase = getBatteryCurrent() / 3;
-                    Isum = 0;
+                    UpdateCurrentData();
                     for (int x = 0; x < 3; x++) {
-                        IrmsOriginal[x] = Irms[x];
-                        doc["original"]["L" + x] = Irms[x];
-                        Irms[x] -= batteryPerPhase;
+                        doc["original"]["L" + x] = IrmsOriginal[x];
                         doc["L" + x] = Irms[x];
-                        Isum = Isum + Irms[x];
                     }
                     doc["TOTAL"] = Isum;
 
                     timeout = COMM_TIMEOUT;
 
-                    UpdateCurrentData();
                 } else
                     doc["TOTAL"] = "not allowed on slave";
             }
