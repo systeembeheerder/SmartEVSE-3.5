@@ -127,9 +127,12 @@ CONTACT2      One can add a second contactor (C2) that switches off 2 of the 3 p
               This way you can still charge solar-only on smaller solar installations.
   <Not present> No second contactor C2 is present (default)
   <Always Off>  C2 is always off, so you are single phase charging
-  <Always On>   C2 is always on, so you are three phase charging (if your Mains are three phase and your EV supports it)
+  <Always On>   C2 is always on, so you are three phase charging (if your Mains are three phase and your EV
+                supports it)
   <Solar Off>   C2 is always on except in Solar Mode where it is always off
-  <Auto>        (not implemented yet, current behaviour is Always On)
+  <Auto>        SmartEVSE starts charging at 3phase, but when in Solar mode and not enough
+                current available for 3 phases, switches off C2 so it will continue on 1 phase
+                Note: CONTACT2 will be set to ALWAYS_ON when MULTI is enabled.
 
 
 ```
