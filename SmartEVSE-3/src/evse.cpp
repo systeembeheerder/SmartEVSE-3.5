@@ -2254,7 +2254,7 @@ void requestEnergyMeasurement(uint8_t Meter, uint8_t Address, bool Export) {
 }
 
 
-// Task that handles the Cable Lock and modbus
+// Task that handles the Cable Lock and modbusUnlockCable
 // 
 // called every 100ms
 //
