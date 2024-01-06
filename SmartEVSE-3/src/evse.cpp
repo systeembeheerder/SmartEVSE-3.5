@@ -834,7 +834,7 @@ int getBatteryCurrent(void) {
 // returns 1 if there is 6A available
 // returns 0 if there is no current available
 //
-char IsCurrentAvailable(void) {
+char IsCurrentAvailable(uint8_t NodeNr) {
     uint8_t n, ActiveEVSE = 0;
     int Baseload, Baseload_EV, TotalCurrent = 0;
 
@@ -887,9 +887,17 @@ char IsCurrentAvailable(void) {
     // Allow solar Charging if surplus current is above 'StartCurrent' (sum of all phases)
     // Charging will start after the timeout (chargedelay) period has ended
      // Only when StartCurrent configured or Node MinCurrent detected or Node inactive
-    if (Mode == MODE_SOLAR) {                                                   // no active EVSE yet?
-        if (ActiveEVSE == 0 && Isum >= ((signed int)StartCurrent *-10)) return 0;
-        else if ((ActiveEVSE * MinCurrent * 10) > TotalCurrent) return 0;       // check if we can split the available current between all active EVSE's
+    if (Mode == MODE_SOLAR && (StartCurrent || Node[NodeNr].MinCurrent || BalancedState[NodeNr] == STATE_A)) {
+        // no active EVSE yet?
+        if (ActiveEVSE == 0) {
+            if (StartCurrent == 0) {
+                if (Isum >= ((signed int)Node[NodeNr].MinCurrent *-1) + (signed int)(ImportCurrent * 10)) return 0;
+            } else {
+                if (Isum >= ((signed int)StartCurrent *-10)) return 0;
+            }
+        }
+        // check if we can split the available current between all active EVSE's
+        else if ((ActiveEVSE * MinCurrent * 10) > TotalCurrent) return 0;
     }
 
     return 1;
@@ -1366,7 +1374,7 @@ void processAllNodeStates(uint8_t NodeNr) {
 
     values[0] = BalancedState[NodeNr];
 
-    current = IsCurrentAvailable();
+    current = IsCurrentAvailable(NodeNr);
     if (current) {                                                              // Yes enough current
         if (BalancedError[NodeNr] & (LESS_6A|NO_SUN)) {
             BalancedError[NodeNr] &= ~(LESS_6A | NO_SUN);                       // Clear Error flags
@@ -2075,7 +2083,7 @@ void EVSEStates(void * parameter) {
                     setState(STATE_COMM_B);                                     // Node wants to switch to State B
 
                 // Load Balancing: Master or Disabled
-                } else if (IsCurrentAvailable()) {                             
+                } else if (IsCurrentAvailable(0)) {
                     BalancedMax[0] = MaxCapacity * 10;
                     Balanced[0] = ChargeCurrent;                                // Set pilot duty cycle to ChargeCurrent (v2.15)
                     if (Modem == EXPERIMENT && ModemStage == 0){
@@ -2119,7 +2127,7 @@ void EVSEStates(void * parameter) {
                     // Load Balancing: Master or Disabled
                     } else { 
                         BalancedMax[0] = ChargeCurrent;
-                        if (IsCurrentAvailable()) {
+                        if (IsCurrentAvailable(0)) {
 
                             Balanced[0] = 0;                                    // For correct baseload calculation set current to zero
                             CalcBalancedCurrent(1);                             // Calculate charge current for all connected EVSE's
@@ -2896,7 +2904,7 @@ void Timer1S(void * parameter) {
             ErrorFlags &= ~TEMP_HIGH; // clear Error
         }
 
-        if ( (ErrorFlags & (LESS_6A|NO_SUN) ) && (LoadBl < 2) && (IsCurrentAvailable())) {
+        if ( (ErrorFlags & (LESS_6A|NO_SUN) ) && (LoadBl < 2) && (IsCurrentAvailable(0))) {
             ErrorFlags &= ~LESS_6A;                                         // Clear Errors if there is enough current available, and Load Balancing is disabled or we are Master
             ErrorFlags &= ~NO_SUN;
             _LOG_I("No sun/current Errors Cleared.\n");
