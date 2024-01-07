@@ -2851,6 +2851,7 @@ void Timer1S(void * parameter) {
                 _LOG_A("State C1 timeout!\n");
                 setState(STATE_B1);                                         // switch back to STATE_B1
                 GLCD_init();                                                // Re-init LCD (200ms delay)
+                if (!ChargeDelay) ChargeDelay = 15;
             }
         }
 
