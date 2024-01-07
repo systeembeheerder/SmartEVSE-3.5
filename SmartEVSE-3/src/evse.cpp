@@ -913,15 +913,6 @@ char IsCurrentAvailable(uint8_t NodeNr) {
     return 1;
 }
 
-void ResetBalancedStates(void) {
-    uint8_t n;
-
-    for (n = 1; n < NR_EVSES; n++) {
-        BalancedState[n] = STATE_A;                                             // Yes, disable old active Node states
-        Balanced[n] = 0;                                                        // reset ChargeCurrent to 0
-    }
-}
-
 // Set global var Nr_Of_Phases_Charging
 // 0 = undetected, 1 - 3 nr of phases we are charging
 void Set_Nr_of_Phases_Charging(void) {
@@ -996,8 +987,6 @@ void CalcBalancedCurrent(char mod) {
     char CurrentSet[NR_EVSES] = {0, 0, 0, 0, 0, 0, 0, 0};
     uint8_t n;
 
-    if (!LoadBl) ResetBalancedStates();                                         // Load balancing disabled?, Reset States
-                                                                                // Do not modify MaxCurrent as it is a config setting. (fix 2.05)
     if (BalancedState[0] == STATE_C && MaxCurrent > MaxCapacity && !Config)
         ChargeCurrent = MaxCapacity * 10;
     else
@@ -1863,9 +1852,6 @@ void UpdateCurrentData(void) {
             // STOP charging for all EVSE's
             // Display error message
             ErrorFlags |= LESS_6A; //NOCURRENT;
-            // Set all EVSE's to State A
-            ResetBalancedStates();
-
             // Broadcast Error code over RS485
             ModbusWriteSingleRequest(BROADCAST_ADR, 0x0001, LESS_6A);
             NoCurrent = 0;
@@ -2903,8 +2889,6 @@ void Timer1S(void * parameter) {
 
                 if (State == STATE_C) setState(STATE_C1);                   // tell EV to stop charging
                 ErrorFlags |= NO_SUN;                                       // Set error: NO_SUN
-
-                ResetBalancedStates();                                      // reset all states
             }
         }
 
@@ -2943,7 +2927,6 @@ void Timer1S(void * parameter) {
             _LOG_W("Error, communication error!\n");
             // Try to broadcast communication error to Nodes if we are Master
             if (LoadBl < 2) ModbusWriteSingleRequest(BROADCAST_ADR, 0x0001, ErrorFlags);         
-            ResetBalancedStates();
         } else if (timeout) timeout--;
 
         if (TempEVSE > maxTemp && !(ErrorFlags & TEMP_HIGH))                         // Temperature too High?
@@ -2951,7 +2934,6 @@ void Timer1S(void * parameter) {
             ErrorFlags |= TEMP_HIGH;
             setState(STATE_A);                                              // ERROR, switch back to STATE_A
             _LOG_W("Error, temperature %i C !\n", TempEVSE);
-            ResetBalancedStates();
         }
 
         if (ErrorFlags & (NO_SUN | LESS_6A)) {
