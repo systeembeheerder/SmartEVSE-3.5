@@ -709,6 +709,7 @@ void setState(uint8_t NewState) {
             CONTACTOR2_OFF;  
             SetCPDuty(1024);                                                    // PWM off,  channel 0, duty cycle 100%
             timerAlarmWrite(timerA, PWM_100, true);                             // Alarm every 1ms, auto reload 
+            timerAlarmEnable(timerA);
             if (NewState == STATE_A) {
                 ErrorFlags &= ~NO_SUN;
                 ErrorFlags &= ~LESS_6A;
@@ -749,6 +750,7 @@ void setState(uint8_t NewState) {
             if (Modem)
                 DisconnectTimeCounter = -1;                                         // Disable Disconnect timer. Car is connected
             timerAlarmWrite(timerA, PWM_95, false);                             // Enable Timer alarm, set to diode test (95%)
+            timerAlarmEnable(timerA);
             SetCurrent(ChargeCurrent);                                          // Enable PWM
             break;      
         case STATE_C:                                                           // State C2
@@ -773,7 +775,7 @@ void setState(uint8_t NewState) {
         case STATE_C1:
             SetCPDuty(1024);                                                    // PWM off,  channel 0, duty cycle 100%
             timerAlarmWrite(timerA, PWM_100, true);                             // Alarm every 1ms, auto reload 
-                                                                                // EV should detect and stop charging within 3 seconds
+            timerAlarmEnable(timerA);                                           // EV should detect and stop charging within 3 seconds
             C1Timer = 6;                                                        // Wait maximum 6 seconds, before forcing the contactor off.
             ChargeDelay = 15;
             break;
@@ -2160,6 +2162,7 @@ void EVSEStates(void * parameter) {
                 DiodeCheck = 1;                                                 // Diode found, OK
                 _LOG_A("Diode OK\n");
                 timerAlarmWrite(timerA, PWM_5, false);                          // Enable Timer alarm, set to start of CP signal (5%)
+                timerAlarmEnable(timerA);
             }    
 
         }
