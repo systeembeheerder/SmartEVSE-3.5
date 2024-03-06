@@ -2808,11 +2808,6 @@ void Timer1S(void * parameter) {
 
     while(1) { // infinite loop
 
-        if (homeBatteryLastUpdate != 0 && homeBatteryLastUpdate < (time(NULL) - 60)) {
-            homeBatteryCurrent = 0;
-            homeBatteryLastUpdate = 0;
-        }
-
         if (BacklightTimer) BacklightTimer--;                               // Decrease backlight counter every second.
 
         // wait for Activation mode to start
