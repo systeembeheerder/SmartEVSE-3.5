@@ -117,13 +117,6 @@ print_results2() {
     fi
 }
 
-check_all_charge_currents () {
-    for device in $MASTER $SLAVE; do
-        check_charging $device
-        print_results "$CHARGECUR" "$TESTVALUE10" "0"
-    done
-}
-
 set_loadbalancing () {
     #make sure we switch lbl in the right order so we dont get modbus errors
     if [ $loadbl_master -eq 0 ]; then
@@ -348,7 +341,10 @@ if [ $((SEL & NR)) -ne 0 ]; then
             done
             #settle switching modes AND stabilizing charging speeds
             sleep 10
-            check_all_charge_currents
+            for device in $MASTER $SLAVE; do
+                check_charging $device
+                print_results "$CHARGECUR" "$TESTVALUE10" "0"
+            done
             #increase testvalue to test if the device responds to that
             TESTVALUE=$(( TESTVALUE + 1 ))
         done
@@ -379,7 +375,10 @@ if [ $((SEL & NR)) -ne 0 ]; then
             sleep 13
 
             if [ $loadbl_master -eq 0 ]; then
-                check_all_charge_currents
+                for device in $MASTER $SLAVE; do
+                    check_charging $device
+                    print_results "$CHARGECUR" "$TESTVALUE10" "0"
+                done
             else
                 TOTCUR=0
                 for device in $SLAVE $MASTER; do
