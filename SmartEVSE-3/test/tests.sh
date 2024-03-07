@@ -118,7 +118,7 @@ print_results2() {
 
 check_all_charge_currents () {
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         print_results "$CHARGECUR" "$TESTVALUE10" "0"
     done
 }
@@ -183,7 +183,7 @@ run_test_loadbl0 () {
         for device in $MASTER $SLAVE; do
             $CURLPOST $device$CONFIG_COMMAND
             overload_mains
-            check_charging
+            check_charging $device
             #we start charging at maxcurrent and then step down for approx. 1A per 670ms
             print_results "$CHARGECUR" "${TARGET[$mode_master]}" "$MARGIN"
         done
@@ -210,7 +210,7 @@ run_test_loadbl1 () {
         overload_mains
         TOTCUR=0
         for device in $SLAVE $MASTER; do
-            check_charging
+            check_charging $device
             TOTCUR=$((TOTCUR + CHARGECUR))
         done
         #we started charging at maxcurrent and then stepped down for approx. 1A per 670ms
@@ -222,9 +222,10 @@ run_test_loadbl1 () {
     done
 }
 
+#takes device to check as argument
 check_charging () {
     #make sure we are actually charging
-    CURL=$(curl -s -X GET $device/settings)
+    CURL=$(curl -s -X GET $1/settings)
     STATE_ID=$(echo $CURL | jq ".evse.state_id")
     print_results2 "$STATE_ID" "2" "0" "STATE_ID"
     CHARGECUR=$(echo $CURL | jq ".settings.charge_current")
@@ -313,7 +314,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
             #settle switching modes AND stabilizing charging speeds
             sleep 10
             for device in $SLAVE $MASTER; do
-                check_charging
+                check_charging $device
                 if [ $device == $MASTER ]; then
                     print_results "$CHARGECUR" "$MASTER_SOCKET_HARDWIRED" "0"
                 else
@@ -382,7 +383,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
             else
                 TOTCUR=0
                 for device in $SLAVE $MASTER; do
-                    check_charging
+                    check_charging $device
                     TOTCUR=$((TOTCUR + CHARGECUR))
                 done
                 print_results "$TOTCUR" "$TESTVALUE10" "0"
@@ -498,7 +499,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     TESTSTRING="Feeding total of 18A should drop the charging current"
     printf "$TESTSTRING\r"
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         #dropping the charge current by a few amps
         echo 60 >feed_mains_$device
     done
@@ -506,13 +507,13 @@ if [ $((SEL & NR)) -ne 0 ]; then
     TESTSTRING="Feeding total of 15A should stabilize the charging current"
     printf "$TESTSTRING\r"
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         print_results "$CHARGECUR" "475" "30"
         echo 50 >feed_mains_$device
     done
     sleep 10
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         print_results "$CHARGECUR" "450" "35"
     done
     #set MainsMeter to Sensorbox
@@ -564,14 +565,14 @@ if [ $((SEL & NR)) -ne 0 ]; then
     read -p "To start charging, set EVSE's to NO CHARGING and then to CHARGING again, then press <ENTER>" dummy
     sleep 2
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
     done
     TESTSTRING="Feeding total of 18A should drop the charging current"
     printf "$TESTSTRING\r"
     echo 60 >feed_mains_$MASTER
     sleep 10
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         print_results "$CHARGECUR" "225" "20"
     done
     TESTSTRING="Feeding total of 15A should stabilize the charging current"
@@ -579,7 +580,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     echo 50 >feed_mains_$MASTER
     sleep 10
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
         print_results "$CHARGECUR" "210" "20"
     done
     printf "Feeding total of 18A....chargecurrent should drop to 6A, then triggers stoptimer and when it expires, stops charging because over import limit of 15A\r"
@@ -604,7 +605,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     read -p "To start charging, set EVSE's to NO CHARGING and then to CHARGING again, then press <ENTER>" dummy
     sleep 2
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
     done
     #set MainsMeter to Sensorbox
     for device in $MASTER $SLAVE; do
@@ -666,7 +667,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     read -p "To start charging, set EVSE's to NO CHARGING and then to CHARGING again, then press <ENTER>" dummy
     sleep 2
     for device in $MASTER $SLAVE; do
-        check_charging
+        check_charging $device
     done
     #set MainsMeter to Sensorbox
     for device in $MASTER $SLAVE; do
@@ -730,7 +731,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     read -p "To start charging, set EVSE's to NO CHARGING and then to CHARGING again, then press <ENTER>" dummy
     sleep 2
     for device in $MASTER; do
-        check_charging
+        check_charging $device
     done
     #set MainsMeter to Sensorbox
     for device in $MASTER $SLAVE; do
