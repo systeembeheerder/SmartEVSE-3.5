@@ -93,6 +93,7 @@ done
 }
 
 #takes 3 arguments, actual value, test value and margin
+#and TESTSTRING as global argument
 print_results() {
     if [ $DBG -eq 1 ]; then
         printf "CHARGECUR=$1, TARGET=$2."
@@ -310,7 +311,6 @@ if [ $((SEL & NR)) -ne 0 ]; then
         #if we are in loadbl 0 we test the slave device in loadbl 0 also
         for mode_master in 1 2 3; do
             set_mode
-            TESTVALUE10=$((TESTVALUE * 10))
             #settle switching modes AND stabilizing charging speeds
             sleep 10
             for device in $SLAVE $MASTER; do
