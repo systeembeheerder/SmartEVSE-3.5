@@ -67,15 +67,20 @@ White='\033[0;37m'        # White
 ABORT=0
 
 init_devices () {
+#default start mode is smart mode (so we can program mainsmeter),
+#loadbl=0
+#master to sensorbox
+#slave to api (so we can switch modes)
 for device in $SLAVE $MASTER; do
-    #go to Normal Mode for init
+    #go to Smart Mode for init
     $CURLPOST $device/reboot
     sleep 1
-    $CURLPOST "$device/automated_testing?loadbl=0&mainsmeter=1"
-    $CURLPOST $device/settings?mode=1
+    $CURLPOST $device/settings?mode=3
 done
+$CURLPOST "$MASTER/automated_testing?loadbl=0&mainsmeter=1"
+set_mainsmeter_to_api $SLAVE 0
 read -p "Make sure all EVSE's are set to NOT CHARGING, then press <ENTER>" dummy
-sleep 5
+#sleep 5
 }
 
 init_currents () {
@@ -290,10 +295,13 @@ if [ $((SEL & NR)) -ne 0 ]; then
     printf "Make sure your Sensorbox is on MAX power delivery to the grid, or Solar tests will fail!\n"
     init_devices
     init_currents
-    #first load all settings before the test
-    for device in $SLAVE $MASTER; do
-        $CURLPOST $device/automated_testing?config=0
-    done
+    $CURLPOST "$MASTER/automated_testing?config=0"
+    $CURLPOST "$SLAVE/automated_testing?config=0"
+    #set api feed to max power delivery to grid
+    TESTVALUE=-50
+    TESTVALUE10=-500
+    echo -500 >feed_mains_$device
+    
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
 
     for loadbl_master in 0 1; do
@@ -313,11 +321,6 @@ if [ $((SEL & NR)) -ne 0 ]; then
                 fi
             done
         done
-    done
-
-    #for all other tests we don't want socket resistors to limit our currents, so switch to Fixed Cable
-    for device in $MASTER $SLAVE; do
-        $CURLPOST $device/automated_testing?config=1
     done
 fi
 
