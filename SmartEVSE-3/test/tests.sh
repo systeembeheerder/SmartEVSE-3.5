@@ -156,25 +156,27 @@ overload_mains () {
     echo $(( TESTVALUE10 )) >feed_mains_$device
 }
 
+#$1 = device to set mainsmeter to api
+#$2 = value in deciAmperes to feed the api
 set_mainsmeter_to_api () {
-    if [ ! -e "feed_mains_$device" ]; then
-        mkfifo feed_mains_$device
+    if [ ! -e "feed_mains_$1" ]; then
+        mkfifo feed_mains_$1
     fi
-    if [ $device == $MASTER ]; then
+    if [ $1 == $MASTER ]; then
         MAC_ID=$MASTER_MAC_ID
     else
         MAC_ID=$SLAVE_MAC_ID
     fi
-    ./feed_mains.sh $MAC_ID <feed_mains_$device >/dev/null &
-    echo $TESTVALUE10 >feed_mains_$device
-    $CURLPOST $device/automated_testing?mainsmeter=9
+    ./feed_mains.sh $MAC_ID <feed_mains_$1 >/dev/null &
+    echo $2 >feed_mains_$1
+    $CURLPOST $1/automated_testing?mainsmeter=9
 }
 
 run_test_loadbl0 () {
     init_devices
     init_currents
     for device in $MASTER $SLAVE; do
-        set_mainsmeter_to_api
+        set_mainsmeter_to_api $device $TESTVALUE10
     done
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
 
@@ -202,7 +204,7 @@ run_test_loadbl1 () {
     init_devices
     init_currents
     device=$MASTER
-    set_mainsmeter_to_api
+    set_mainsmeter_to_api $MASTER $TESTVALUE10
     loadbl_master=1
     set_loadbalancing
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
@@ -453,7 +455,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     init_devices
     init_currents
     for device in $MASTER $SLAVE; do
-        set_mainsmeter_to_api
+        set_mainsmeter_to_api $device $TESTVALUE10
         $CURLPOST "$device/settings?solar_start_current=4&solar_max_import=15&solar_stop_time=1"
     done
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
@@ -527,7 +529,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     init_devices
     init_currents
     for device in $MASTER; do
-        set_mainsmeter_to_api
+        set_mainsmeter_to_api $device $TESTVALUE10
         $CURLPOST "$device/settings?solar_start_current=4&solar_max_import=15&solar_stop_time=1"
     done
 
@@ -619,7 +621,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     init_devices
     init_currents
     for device in $MASTER; do
-        set_mainsmeter_to_api
+        set_mainsmeter_to_api $device $TESTVALUE10
         $CURLPOST "$device/settings?solar_start_current=4&solar_max_import=15&solar_stop_time=1"
     done
     #to speed up testing lower max_current
@@ -683,7 +685,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     init_devices
     init_currents
     for device in $MASTER; do
-        set_mainsmeter_to_api
+        set_mainsmeter_to_api $device $TESTVALUE10
         $CURLPOST "$device/settings?solar_start_current=4&solar_max_import=15&solar_stop_time=1"
     done
     #to speed up testing lower max_current
