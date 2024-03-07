@@ -163,15 +163,6 @@ overload_mains () {
 #$1 = device to set mainsmeter to api
 #$2 = value in deciAmperes to feed the api
 set_mainsmeter_to_api () {
-    if [ ! -e "feed_mains_$1" ]; then
-        mkfifo feed_mains_$1
-    fi
-    if [ $1 == $MASTER ]; then
-        MAC_ID=$MASTER_MAC_ID
-    else
-        MAC_ID=$SLAVE_MAC_ID
-    fi
-    ./feed_mains.sh $MAC_ID <feed_mains_$1 >/dev/null &
     echo $2 >feed_mains_$1
     $CURLPOST $1/automated_testing?mainsmeter=9
 }
@@ -201,8 +192,6 @@ run_test_loadbl0 () {
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 }
 
 run_test_loadbl1 () {
@@ -231,8 +220,6 @@ run_test_loadbl1 () {
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 }
 
 check_charging () {
@@ -242,6 +229,19 @@ check_charging () {
     print_results2 "$STATE_ID" "2" "0" "STATE_ID"
     CHARGECUR=$(echo $CURL | jq ".settings.charge_current")
 }
+
+#first make two feeds to feed the mains of both slave and master
+
+if [ ! -e "feed_mains_$MASTER" ]; then
+    mkfifo feed_mains_$MASTER
+fi
+if [ ! -e "feed_mains_$SLAVE" ]; then
+    mkfifo feed_mains_$SLAVE
+fi
+./feed_mains.sh $MASTER_MAC_ID <feed_mains_$MASTER >/dev/null &
+./feed_mains.sh $SLAVE_MAC_ID <feed_mains_$SLAVE >/dev/null &
+echo 0 >feed_mains_$MASTER
+echo 0 >feed_mains_$SLAVE
 
 #TEST1: MODESWITCH TEST: test if mode changes on master reflects on slave and vice versa
 NR=$((2**0))
@@ -519,8 +519,6 @@ if [ $((SEL & NR)) -ne 0 ]; then
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 fi
 
 #TEST512: STARTCURRENT TEST: test if StartCurrent is obeyed in Solar Mode for loadbl=1
@@ -612,8 +610,6 @@ if [ $((SEL & NR)) -ne 0 ]; then
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 fi
 
 #TEST1024: shortened version of test512
@@ -676,8 +672,6 @@ if [ $((SEL & NR)) -ne 0 ]; then
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 fi
 
 #TEST2048: modified version of test1024, only testing a master without any slaves
@@ -742,8 +736,9 @@ if [ $((SEL & NR)) -ne 0 ]; then
     for device in $MASTER $SLAVE; do
         $CURLPOST $device/automated_testing?mainsmeter=1
     done
-    #kill all running subprocesses
-    pkill -P $$
 fi
+
+#kill all running subprocesses
+pkill -P $$
 
 exit 0
