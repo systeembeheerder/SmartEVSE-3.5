@@ -142,7 +142,6 @@ set_mode () {
     fi
     MODE=${MODESTR[$mode_master]}
     printf "Testing  LBL=$loadbl_master, mode=$MODE on $TESTSTRING.\r"
-    TESTVALUE10=$((TESTVALUE * 10))
 }
 
 overload_mains () {
@@ -184,6 +183,7 @@ run_test_loadbl0 () {
     set_loadbalancing
     for mode_master in 3 2; do
         set_mode
+        TESTVALUE10=$((TESTVALUE * 10))
         for device in $MASTER $SLAVE; do
             $CURLPOST $device$CONFIG_COMMAND
             overload_mains
@@ -211,6 +211,7 @@ run_test_loadbl1 () {
     #if we are in loadbl 0 we don't test the slave device
     for mode_master in 3 2; do
         set_mode
+        TESTVALUE10=$((TESTVALUE * 10))
         $CURLPOST $device$CONFIG_COMMAND
         overload_mains
         TOTCUR=0
@@ -300,6 +301,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
         #if we are in loadbl 0 we test the slave device in loadbl 0 also
         for mode_master in 1 2 3; do
             set_mode
+            TESTVALUE10=$((TESTVALUE * 10))
             #settle switching modes AND stabilizing charging speeds
             sleep 10
             for device in $SLAVE $MASTER; do
@@ -336,6 +338,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
         TESTVALUE=12
         for mode_master in 1 3 2; do
             set_mode
+            TESTVALUE10=$((TESTVALUE * 10))
             for device in $MASTER $SLAVE; do
                 $CURLPOST $device/automated_testing?current_max=$TESTVALUE
             done
@@ -364,6 +367,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
         TESTVALUE=20
         for mode_master in 1 3 2; do
             set_mode
+            TESTVALUE10=$((TESTVALUE * 10))
             for device in $MASTER $SLAVE; do
                 $CURLPOST $device/automated_testing?current_max_circuit=$TESTVALUE
             done
@@ -465,6 +469,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     #SOLAR mode
     mode_master=2
     set_mode
+    TESTVALUE10=$((TESTVALUE * 10))
     for device in $MASTER $SLAVE; do
         echo 60 >feed_mains_$device
     done
@@ -539,6 +544,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     sleep 2
     mode_master=2
     set_mode
+    TESTVALUE10=$((TESTVALUE * 10))
     sleep 2
     printf "\n"
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
@@ -635,6 +641,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     sleep 2
     mode_master=2
     set_mode
+    TESTVALUE10=$((TESTVALUE * 10))
     sleep 2
     printf "\n"
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
@@ -700,6 +707,7 @@ if [ $((SEL & NR)) -ne 0 ]; then
     sleep 2
     mode_master=2
     set_mode
+    TESTVALUE10=$((TESTVALUE * 10))
     sleep 2
     printf "\n"
     read -p "Make sure all EVSE's are set to CHARGING, then press <ENTER>" dummy
