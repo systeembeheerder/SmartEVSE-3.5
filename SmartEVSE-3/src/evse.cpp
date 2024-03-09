@@ -3458,7 +3458,7 @@ void ConfigureModbusMode(uint8_t newmode) {
             MBclient.onDataHandler(&MBhandleData);
             MBclient.onErrorHandler(&MBhandleError);
             // Start ModbusRTU Master background task
-            MBclient.begin(Serial1);
+            MBclient.begin(static_cast<HardwareSerial&>(Serial1), -1, 25000u);  // Set quiet time from the default 3.5 to 25ms
         } 
     } else if (newmode > 1) {
         // Register worker. at serverID 'LoadBl', all function codes
