@@ -8,7 +8,8 @@
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+//#include <ESPAsyncWebServer.h>
+#include <WebServer.h>
 
 #define USE_ESP_WIFIMANAGER_NTP true
 #define USING_AFRICA        false
@@ -21,7 +22,7 @@
 #define USING_INDIAN        false
 #define USING_PACIFIC       false
 #define USING_ETC_GMT       false
-#include <ESPAsync_WiFiManager.h>
+#include <WiFiManager.h>
 
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -71,9 +72,8 @@ extern String handlesettings(void);
 // end of mongoose stuff
 #include "esp_ota_ops.h"
 
-//AsyncWebServer webServer(80);
-//AsyncWebSocket ws("/ws");           // data to/from webpage
-AsyncDNSServer dnsServer;
+WebServer webServer(80);
+//AsyncDNSServer dnsServer;
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
 
 #if MQTT
@@ -88,7 +88,8 @@ TaskHandle_t MqttTaskHandle = NULL;
 uint8_t lastMqttUpdate = 0;
 #endif
 
-ESPAsync_WiFiManager ESPAsync_wifiManager(&webServer, &dnsServer, APhostname.c_str());
+//ESPAsync_WiFiManager ESPAsync_wifiManager(&webServer, &dnsServer, APhostname.c_str());
+WiFiManager wifiManager;
 
 // SSID and PW for your Router
 String Router_SSID;
@@ -3754,7 +3755,7 @@ String processor(const String& var){
 //
 // 404 (page not found) handler
 // 
-void onRequest(AsyncWebServerRequest *request){
+void onRequest(WebServerRequest *request){
     //Handle Unknown Request
     request->send(404);
 }
@@ -4510,9 +4511,8 @@ void timeSyncCallback(struct timeval *tv)
 // Setup Wifi 
 void WiFiSetup(void) {
 
-    //ESPAsync_wifiManager.resetSettings();   //reset saved settings
-    //ESPAsync_wifiManager.setDebugOutput(true);
-    ESPAsync_wifiManager.setMinimumSignalQuality(-1);
+    //wifiManager.setDebugOutput(true);
+    wifiManager.setMinimumSignalQuality(-1);
 
     // Start the mDNS responder so that the SmartEVSE can be accessed using a local hostame: http://SmartEVSE-xxxxxx.local
     if (!MDNS.begin(APhostname.c_str())) {                
@@ -4531,9 +4531,10 @@ void WiFiSetup(void) {
     sntp_setservername(1, "europe.pool.ntp.org");                               //fallback server
     sntp_set_time_sync_notification_cb(timeSyncCallback);
     sntp_init();
-    String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
-    setenv("TZ",TZ_INFO.c_str(),1);
-    tzset();
+    //TODO
+    //String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
+    //setenv("TZ",TZ_INFO.c_str(),1);
+    //tzset();
 
 #if DBG == 1
     // Initialize the server (telnet or web socket) of RemoteDebug
@@ -4548,22 +4549,22 @@ void SetupPortalTask(void * parameter) {
     _LOG_A("Start Portal...\n");
     StopwebServer();
     WiFi.disconnect(true);
-    // Set config portal channel, default = 1. Use 0 => random channel from 1-13
-    ESPAsync_wifiManager.setConfigPortalChannel(0);
-    ESPAsync_wifiManager.setAPStaticIPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+    wifiManager.setAPStaticIPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
 
-    ESPAsync_wifiManager.setConfigPortalTimeout(120);   // Portal will be available 2 minutes to connect to, then close. (if connected within this time, it will remain active)
+    wifiManager.setConfigPortalTimeout(120);  // Portal will be available 2 minutes to connect to, then close. (if connected within this time, it will remain active)
     delay(1000);
-    ESPAsync_wifiManager.startConfigPortal(APhostname.c_str(), APpassword.c_str());         // blocking until connected or timeout.
+    wifiManager.startConfigPortal(APhostname.c_str(), APpassword.c_str());
     //_LOG_A("SetupPortalTask free ram: %u\n", uxTaskGetStackHighWaterMark( NULL ));
     WiFi.disconnect(true);
 
     // this function only works in portal mode, so we have to save the timezone:
+    // TODO
+    /*
     TZname = ESPAsync_wifiManager.getTimezoneName();
     if (preferences.begin("settings", false) ) {
         preferences.putString("Timezone",TZname);
         preferences.end();
-    }
+    }*/
 
     WIFImode = 1;
     handleWIFImode();
