@@ -59,6 +59,24 @@ RemoteDebug Debug;
 
 struct tm timeinfo;
 
+//mongoose stuff
+#include "mongoose.h"
+struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
+
+// Connection event handler function
+static void fn(struct mg_connection *c, int ev, void *ev_data) {
+  if (ev == MG_EV_HTTP_MSG) {  // New HTTP request received
+    struct mg_http_message *hm = (struct mg_http_message *) ev_data;  // Parsed HTTP request
+    if (mg_http_match_uri(hm, "/api/hello")) {                        // REST API call?
+      mg_http_reply(c, 200, "", "{%m:%d}\n", MG_ESC("status"), 1);    // Yes. Respond JSON
+    } else {
+      struct mg_http_serve_opts opts = {.root_dir = "."};  // For all other URLs,
+      mg_http_serve_dir(c, hm, &opts);                     // Serve static files
+    }
+  }
+}
+// end of mongoose stuff
+
 AsyncWebServer webServer(80);
 //AsyncWebSocket ws("/ws");           // data to/from webpage
 AsyncDNSServer dnsServer;
@@ -3773,6 +3791,10 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
 }
 
 void StartwebServer(void) {
+    //mongoose
+    mg_mgr_init(&mgr);  // Initialise event manager
+    mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL);  // Setup listener
+    //end mongoose
 
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         _LOG_A("page / (root) requested and sent\n");
@@ -4812,6 +4834,9 @@ void loop() {
         _LOG_A("Time not synced with NTP yet.\n");
     }
 
+    //mongoose stuff
+    mg_mgr_poll(&mgr, 1000);  // Infinite event loop
+    //end of mongoose stuff
 #if MQTT
     // Process MQTT data
     MQTTclient.loop();
