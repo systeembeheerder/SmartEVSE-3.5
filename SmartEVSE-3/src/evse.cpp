@@ -64,20 +64,6 @@ struct tm timeinfo;
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 extern String handlesettings(void);
 
-// Connection event handler function
-static void fn(struct mg_connection *c, int ev, void *ev_data) {
-  if (ev == MG_EV_HTTP_MSG) {  // New HTTP request received
-    struct mg_http_message *hm = (struct mg_http_message *) ev_data;  // Parsed HTTP request
-    if (mg_http_match_uri(hm, "/api/hello")) {                        // REST API call?
-      mg_http_reply(c, 200, "", "{%m:%d}\n", MG_ESC("status"), 1);    // Yes. Respond JSON
-    } else if (mg_http_match_uri(hm, "/settings")) {                        // REST API call?
-      mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", handlesettings().c_str());    // Yes. Respond JSON
-    } else {
-      struct mg_http_serve_opts opts = {.root_dir = "."};  // For all other URLs,
-      mg_http_serve_dir(c, hm, &opts);                     // Serve static files
-    }
-  }
-}
 // end of mongoose stuff
 AsyncWebServer webServer(80);
 //AsyncWebSocket ws("/ws");           // data to/from webpage
@@ -3790,6 +3776,314 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
     //DelayedTime.epoch2 = 0;
     //DelayedTime.diff = 0;
     return 1;
+}
+
+// wrapper so hasParam and getParam still work
+class webServerRequest {
+private:
+    struct mg_http_message *hm_internal;
+    String _value;
+    char temp[64];
+
+public:
+    void setMessage(struct mg_http_message *hm);
+    bool hasParam(const char *param);
+    webServerRequest* getParam(const char *param); // Return pointer to self
+    const String& value(); // Return the string value
+};
+
+void webServerRequest::setMessage(struct mg_http_message *hm) {
+    hm_internal = hm;
+}
+
+bool webServerRequest::hasParam(const char *param) {
+    return (mg_http_get_var(&hm_internal->query, param, temp, sizeof(temp)) > 0);
+}
+
+webServerRequest* webServerRequest::getParam(const char *param) {
+    _value = ""; // Clear previous value
+    if (mg_http_get_var(&hm_internal->query, param, temp, sizeof(temp)) > 0) {
+        _value = temp;
+    }
+    return this; // Return pointer to self
+}
+
+const String& webServerRequest::value() {
+    return _value; // Return the string value
+}
+//end of wrapper
+
+// Connection event handler function
+// indenting lower level two spaces to stay compatible with old StartWebServer
+static void fn(struct mg_connection *c, int ev, void *ev_data) {
+  if (ev == MG_EV_HTTP_MSG) {  // New HTTP request received
+    struct mg_http_message *hm = (struct mg_http_message *) ev_data;            // Parsed HTTP request
+    webServerRequest* request = new webServerRequest();
+    request->setMessage(hm);
+    if (mg_http_match_uri(hm, "/api/hello")) {                                  // REST API call?
+      mg_http_reply(c, 200, "", "{%m:%d}\n", MG_ESC("status"), 1);              // Yes. Respond JSON
+    } else if (mg_http_match_uri(hm, "/settings")) {                            // REST API call?
+      if (!memcmp("GET", hm->method.ptr, hm->method.len))                       // if GET
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", handlesettings().c_str());    // Yes. Respond JSON
+      else if (!memcmp("POST", hm->method.ptr, hm->method.len)) {                     // if POST
+        DynamicJsonDocument doc(512); // https://arduinojson.org/v6/assistant/
+
+        if(request->hasParam("backlight")) {
+            int backlight = request->getParam("backlight")->value().toInt();
+            BacklightTimer = backlight * BACKLIGHT;
+            doc["Backlight"] = backlight;
+        }
+
+        if(request->hasParam("current_min")) {
+            int current = request->getParam("current_min")->value().toInt();
+            if(current >= 6 && current <= 16 && LoadBl < 2) {
+                MinCurrent = current;
+                doc["current_min"] = MinCurrent;
+                write_settings();
+            } else {
+                doc["current_min"] = "Value not allowed!";
+            }
+        }
+
+        if(request->hasParam("current_max_sum_mains")) {
+            int current = request->getParam("current_max_sum_mains")->value().toInt();
+            if(current >= 10 && current <= 600 && LoadBl < 2) {
+                MaxSumMains = current;
+                doc["current_max_sum_mains"] = MaxSumMains;
+                write_settings();
+            } else {
+                doc["current_max_sum_mains"] = "Value not allowed!";
+            }
+        }
+
+        if(request->hasParam("disable_override_current")) {
+            OverrideCurrent = 0;
+            doc["disable_override_current"] = "OK";
+        }
+
+        if(request->hasParam("mode")) {
+            String mode = request->getParam("mode")->value();
+
+            //first check if we have a delayed mode switch
+            if(request->hasParam("starttime")) {
+                String DelayedStartTimeStr = request->getParam("starttime")->value();
+                //string time_str = "2023-04-14T11:31";
+                if (!StoreTimeString(DelayedStartTimeStr, &DelayedStartTime)) {
+                    //parse OK
+                    if (DelayedStartTime.diff > 0)
+                        setAccess(0);                         //switch to OFF, we are Delayed Charging
+                    else {//we are in the past so no delayed charging
+                        DelayedStartTime.epoch2 = DELAYEDSTARTTIME;
+                        DelayedStopTime.epoch2 = DELAYEDSTOPTIME;
+                        DelayedRepeat = 0;
+                    }
+                }
+                else {
+                    //we couldn't parse the string, so we are NOT Delayed Charging
+                    DelayedStartTime.epoch2 = DELAYEDSTARTTIME;
+                    DelayedStopTime.epoch2 = DELAYEDSTOPTIME;
+                    DelayedRepeat = 0;
+                }
+
+                // so now we might have a starttime and we might be Delayed Charging
+                if (DelayedStartTime.epoch2) {
+                    //we only accept a DelayedStopTime if we have a valid DelayedStartTime
+                    if(request->hasParam("stoptime")) {
+                        String DelayedStopTimeStr = request->getParam("stoptime")->value();
+                        //string time_str = "2023-04-14T11:31";
+                        if (!StoreTimeString(DelayedStopTimeStr, &DelayedStopTime)) {
+                            //parse OK
+                            if (DelayedStopTime.diff <= 0 || DelayedStopTime.epoch2 <= DelayedStartTime.epoch2)
+                                //we are in the past or DelayedStopTime before DelayedStartTime so no DelayedStopTime
+                                DelayedStopTime.epoch2 = DELAYEDSTOPTIME;
+                        }
+                        else
+                            //we couldn't parse the string, so no DelayedStopTime
+                            DelayedStopTime.epoch2 = DELAYEDSTOPTIME;
+                        doc["stoptime"] = (DelayedStopTime.epoch2 ? DelayedStopTime.epoch2 + EPOCH2_OFFSET : 0);
+                        if(request->hasParam("repeat")) {
+                            int Repeat = request->getParam("repeat")->value().toInt();
+                            if (Repeat >= 0 && Repeat <= 1) {                                   //boundary check
+                                DelayedRepeat = Repeat;
+                                doc["repeat"] = Repeat;
+                            }
+                        }
+                    }
+
+                }
+                doc["starttime"] = (DelayedStartTime.epoch2 ? DelayedStartTime.epoch2 + EPOCH2_OFFSET : 0);
+            }
+
+            switch(mode.toInt()) {
+                case 0: // OFF
+                    ToModemWaitStateTimer = 0;
+                    ToModemDoneStateTimer = 0;
+                    LeaveModemDoneStateTimer = 0;
+                    LeaveModemDeniedStateTimer = 0;
+                    setAccess(0);
+                    break;
+                case 1:
+                    setMode(MODE_NORMAL);
+                    break;
+                case 2:
+                    setMode(MODE_SOLAR);
+                    break;
+                case 3:
+                    setMode(MODE_SMART);
+                    break;
+                default:
+                    mode = "Value not allowed!";
+            }
+            doc["mode"] = mode;
+        }
+
+        if(request->hasParam("enable_C2")) {
+            EnableC2 = (EnableC2_t) request->getParam("enable_C2")->value().toInt();
+            write_settings();
+            doc["settings"]["enable_C2"] = StrEnableC2[EnableC2];
+        }
+
+        if(request->hasParam("modem")) {
+            Modem = (Modem_t) request->getParam("modem")->value().toInt();
+            doc["settings"]["modem"] = StrModem[Modem];
+        }
+
+        if(request->hasParam("stop_timer")) {
+            int stop_timer = request->getParam("stop_timer")->value().toInt();
+
+            if(stop_timer >= 0 && stop_timer <= 60) {
+                StopTime = stop_timer;
+                doc["stop_timer"] = true;
+                write_settings();
+            } else {
+                doc["stop_timer"] = false;
+            }
+
+        }
+
+        if(Mode == MODE_NORMAL || Mode == MODE_SMART) {
+            if(request->hasParam("override_current")) {
+                int current = request->getParam("override_current")->value().toInt();
+                if (LoadBl < 2 && (current == 0 || (current >= ( MinCurrent * 10 ) && current <= ( MaxCurrent * 10 )))) { //OverrideCurrent not possible on Slave
+                    OverrideCurrent = current;
+                    doc["override_current"] = OverrideCurrent;
+                } else {
+                    doc["override_current"] = "Value not allowed!";
+                }
+            }
+        }
+
+        if(request->hasParam("solar_start_current")) {
+            int current = request->getParam("solar_start_current")->value().toInt();
+            if(current >= 0 && current <= 48) {
+                StartCurrent = current;
+                doc["solar_start_current"] = StartCurrent;
+                write_settings();
+            } else {
+                doc["solar_start_current"] = "Value not allowed!";
+            }
+        }
+
+        if(request->hasParam("solar_max_import")) {
+            int current = request->getParam("solar_max_import")->value().toInt();
+            if(current >= 0 && current <= 48) {
+                ImportCurrent = current;
+                doc["solar_max_import"] = ImportCurrent;
+                write_settings();
+            } else {
+                doc["solar_max_import"] = "Value not allowed!";
+            }
+        }
+
+        //special section to post stuff for experimenting with an ISO15118 modem
+        if(request->hasParam("override_pwm")) {
+            int pwm = request->getParam("override_pwm")->value().toInt();
+            if (pwm == 0){
+                CP_OFF;
+                CPDutyOverride = true;
+            } else if (pwm < 0){
+                CP_ON;
+                CPDutyOverride = false;
+                pwm = 100; // 10% until next loop, to be safe, corresponds to 6A
+            } else{
+                CP_ON;
+                CPDutyOverride = true;
+            }
+
+            SetCPDuty(pwm);
+            doc["override_pwm"] = pwm;
+        }
+
+        //allow basic plug 'n charge based on evccid
+        //if required_evccid is set to a value, SmartEVSE will only allow charging requests from said EVCCID
+        if(request->hasParam("required_evccid")) {
+            if (request->getParam("required_evccid")->value().length() <= 32) {
+                strncpy(RequiredEVCCID, request->getParam("required_evccid")->value().c_str(), sizeof(RequiredEVCCID));
+                doc["required_evccid"] = RequiredEVCCID;
+                write_settings();
+            } else {
+                doc["required_evccid"] = "EVCCID too long (max 32 char)";
+            }
+        }
+
+#if MQTT
+        if(request->hasParam("mqtt_update")) {
+            if (request->getParam("mqtt_update")->value().toInt() == 1) {
+
+                if(request->hasParam("mqtt_host")) {
+                    MQTTHost = request->getParam("mqtt_host")->value();
+                    doc["mqtt_host"] = MQTTHost;
+                }
+
+                if(request->hasParam("mqtt_port")) {
+                    MQTTPort = request->getParam("mqtt_port")->value().toInt();
+                    if (MQTTPort == 0) MQTTPort = 1883;
+                    doc["mqtt_port"] = MQTTPort;
+                }
+
+                if(request->hasParam("mqtt_topic_prefix")) {
+                    MQTTprefix = request->getParam("mqtt_topic_prefix")->value();
+                    if (!MQTTprefix || MQTTprefix == "") {
+                        MQTTprefix = APhostname;
+                    }
+                    doc["mqtt_topic_prefix"] = MQTTprefix;
+                }
+
+                if(request->hasParam("mqtt_username")) {
+                    MQTTuser = request->getParam("mqtt_username")->value();
+                    if (!MQTTuser || MQTTuser == "") {
+                        MQTTuser.clear();
+                    }
+                    doc["mqtt_username"] = MQTTuser;
+                }
+
+                if(request->hasParam("mqtt_password")) {
+                    MQTTpassword = request->getParam("mqtt_password")->value();
+                    if (!MQTTpassword || MQTTpassword == "") {
+                        MQTTpassword.clear();
+                    }
+                    doc["mqtt_password_set"] = (MQTTpassword != "");
+                }
+
+                SetupMQTTClient();
+                write_settings();
+            }
+        }
+#endif
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", json.c_str());    // Yes. Respond JSON
+      } else {
+        mg_http_reply(c, 404, "", "Not Found\n");
+      }
+
+    } else {
+      struct mg_http_serve_opts opts = {.root_dir = "."};  // For all other URLs,
+      mg_http_serve_dir(c, hm, &opts);                     // Serve static files
+    }
+    delete request;
+  }
 }
 
 void StartwebServer(void) {
