@@ -60,7 +60,11 @@ RemoteDebug Debug;
 struct tm timeinfo;
 
 //mongoose stuff
+#define FS_ROOT "/spiffs"
+#define MG_ARCH MG_ARCH_ESP32
 #include "mongoose.h"
+#include "esp_spiffs.h"
+#include "esp_log.h"
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 extern String handlesettings(void);
 
@@ -3813,6 +3817,14 @@ const String& webServerRequest::value() {
 }
 //end of wrapper
 
+// SPIFFS is flat, so tell Mongoose that the FS root is a directory
+// This cludge is not required for filesystems with directory support
+static int my_stat(const char *path, size_t *size, time_t *mtime) {
+  int flags = mg_fs_posix.st(path, size, mtime);
+  if (strcmp(path, FS_ROOT) == 0) flags |= MG_FS_DIR;
+  return flags;
+}
+
 // Connection event handler function
 // indenting lower level two spaces to stay compatible with old StartWebServer
 static void fn(struct mg_connection *c, int ev, void *ev_data) {
@@ -4079,8 +4091,11 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
       }
 
     } else {
-      struct mg_http_serve_opts opts = {.root_dir = "."};  // For all other URLs,
-      mg_http_serve_dir(c, hm, &opts);                     // Serve static files
+        struct mg_fs fs = mg_fs_posix;
+        fs.st = my_stat;
+        struct mg_http_serve_opts opts = {.root_dir = FS_ROOT, .fs = &fs};
+        // opts.fs = NULL;
+        mg_http_serve_dir(c, hm, &opts);
     }
     delete request;
   }
@@ -4088,8 +4103,61 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 
 void StartwebServer(void) {
     //mongoose
+    // Mount filesystem
+    esp_vfs_spiffs_conf_t conf = {
+      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = true};
+    int res = esp_vfs_spiffs_register(&conf);
+    MG_INFO(("FS at %s initialised, status: %d", conf.base_path, res));
+
+      if (res != ESP_OK) {
+        if (res == ESP_FAIL) {
+            MG_INFO(("Failed to mount or format filesystem"));
+        } else if (res == ESP_ERR_NOT_FOUND) {
+            MG_INFO(("Failed to find SPIFFS partition"));
+        } else {
+            MG_INFO(("Failed to initialize SPIFFS (%s)", esp_err_to_name(res)));
+        }
+        //return;
+    }
+
+    res = esp_spiffs_mounted("spiffs");
+    MG_INFO(("FS is mounted: %d.\n", res));
+
+//#ifdef CONFIG_EXAMPLE_SPIFFS_CHECK_ON_START
+    MG_INFO(("Performing SPIFFS_check()."));
+    int ret = esp_spiffs_check(conf.partition_label);
+    if (ret != ESP_OK) {
+        MG_INFO(("SPIFFS_check() failed (%s)", esp_err_to_name(ret)));
+        //return;
+    } else {
+        MG_INFO(("SPIFFS_check() successful"));
+    }
+//#endif
+
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(conf.partition_label, &total, &used);
+    if (ret != ESP_OK) {
+        MG_INFO(("Failed to get SPIFFS partition information (%s). Formatting...", esp_err_to_name(ret)));
+        esp_spiffs_format(conf.partition_label);
+        //return;
+    } else {
+        MG_INFO(("Partition size: total: %d, used: %d", total, used));
+    }
+
+/*
+#define INDEX "/spiffs/index.html"
+    FILE* f = fopen(INDEX, "w+");
+    if (f == NULL) {
+        MG_INFO(("Failed to open file for writing\n"));
+        //return;
+    }
+    fprintf(f,R"(<!DOCTYPE html> <html> <head> <title>Example</title> </head> <body> <p>DINGO3 test.</p> </body> </html>)");
+    fclose(f);
+*/
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL);  // Setup listener
+    mg_log_set(7);
+
     //end mongoose
 
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
