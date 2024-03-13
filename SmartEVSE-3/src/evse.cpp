@@ -4114,7 +4114,7 @@ void StartwebServer(void) {
     //mongoose
     // Mount filesystem
     esp_vfs_spiffs_conf_t conf = {
-      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = true};
+      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = false};
     int res = esp_vfs_spiffs_register(&conf);
     MG_INFO(("FS at %s initialised, status: %d", conf.base_path, res));
 
@@ -4142,7 +4142,7 @@ void StartwebServer(void) {
         MG_INFO(("SPIFFS_check() successful"));
     }
 //#endif
-
+/*
     size_t total = 0, used = 0;
     ret = esp_spiffs_info(conf.partition_label, &total, &used);
     if (ret != ESP_OK) {
@@ -4153,7 +4153,7 @@ void StartwebServer(void) {
         MG_INFO(("Partition size: total: %d, used: %d", total, used));
     }
 
-/*
+
 #define INDEX "/spiffs/index.html"
     FILE* f = fopen(INDEX, "w+");
     if (f == NULL) {
