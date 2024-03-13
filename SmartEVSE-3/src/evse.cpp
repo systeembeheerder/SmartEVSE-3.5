@@ -2330,6 +2330,10 @@ uint8_t PollEVNode = NR_EVSES, updated = 0;
 
     while(1)  // infinite loop
     {
+        //mongoose stuff
+        mg_mgr_poll(&mgr, 1000);  // Infinite event loop
+        //end of mongoose stuff
+
         // Check if the cable lock is used
         if (Lock) {                                                 // Cable lock enabled?
 
@@ -4923,9 +4927,6 @@ void loop() {
         _LOG_A("Time not synced with NTP yet.\n");
     }
 
-    //mongoose stuff
-    mg_mgr_poll(&mgr, 1000);  // Infinite event loop
-    //end of mongoose stuff
 #if MQTT
     // Process MQTT data
     MQTTclient.loop();
