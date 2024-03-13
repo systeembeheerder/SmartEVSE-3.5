@@ -3762,6 +3762,7 @@ void onRequest(AsyncWebServerRequest *request){
 void StopwebServer(void) {
     // ws.closeAll();
     webServer.end();
+    mg_mgr_free(&mgr);
 }
 
 /* Takes TimeString in format
