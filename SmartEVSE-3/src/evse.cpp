@@ -3832,8 +3832,17 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
     struct mg_http_message *hm = (struct mg_http_message *) ev_data;            // Parsed HTTP request
     webServerRequest* request = new webServerRequest();
     request->setMessage(hm);
-    if (mg_http_match_uri(hm, "/api/hello")) {                                  // REST API call?
-      mg_http_reply(c, 200, "", "{%m:%d}\n", MG_ESC("status"), 1);              // Yes. Respond JSON
+    if (mg_http_match_uri(hm, "/erasesettings") && !memcmp("DELETE", hm->method.ptr, hm->method.len)) {
+        mg_http_reply(c, 200, "text/plain", "Erasing settings, rebooting");
+        if ( preferences.begin("settings", false) ) {         // our own settings
+          preferences.clear();
+          preferences.end();
+        }
+        if (preferences.begin("nvs.net80211", false) ) {      // WiFi settings used by ESP
+          preferences.clear();
+          preferences.end();
+        }
+        ESP.restart();
     } else if (mg_http_match_uri(hm, "/settings")) {                            // REST API call?
       if (!memcmp("GET", hm->method.ptr, hm->method.len))                       // if GET
         mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", handlesettings().c_str());    // Yes. Respond JSON

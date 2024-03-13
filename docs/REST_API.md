@@ -116,6 +116,13 @@ This output is often used to add to your bug report, so the developers can see y
 <br>&emsp;&emsp;Usually you should leave this setting at its default value (600A)
 <br>&emsp;&emsp;since your electricity provider probably does not supports this.
 
+
+# DELETE: /erasesettings
+
+curl -X DELETE "http://ipaddress/erasesettings"
+
+This command will delete your own settings, including the WiFi-settings.
+
 # POST: /currents
 
 * battery_current
