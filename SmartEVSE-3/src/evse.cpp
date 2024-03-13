@@ -4103,7 +4103,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         struct mg_fs fs = mg_fs_posix;
         fs.st = my_stat;
         struct mg_http_serve_opts opts = {.root_dir = FS_ROOT, .fs = &fs};
-        // opts.fs = NULL;
+        opts.fs = NULL;
         mg_http_serve_dir(c, hm, &opts);
     }
     delete request;
