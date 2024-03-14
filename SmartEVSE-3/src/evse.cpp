@@ -4216,6 +4216,43 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
             }//end of firmware.bin
           mg_http_reply(c, 200, "", "%ld", res);
         }
+    } else if (mg_http_match_uri(hm, "/currents") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+        DynamicJsonDocument doc(200);
+
+        if(request->hasParam("battery_current")) {
+            if (LoadBl < 2) {
+                homeBatteryCurrent = request->getParam("battery_current")->value().toInt();
+                homeBatteryLastUpdate = time(NULL);
+                doc["battery_current"] = homeBatteryCurrent;
+            } else
+                doc["battery_current"] = "not allowed on slave";
+        }
+
+        if(MainsMeter == EM_API) {
+            if(request->hasParam("L1") && request->hasParam("L2") && request->hasParam("L3")) {
+                if (LoadBl < 2) {
+                    Irms[0] = request->getParam("L1")->value().toInt();
+                    Irms[1] = request->getParam("L2")->value().toInt();
+                    Irms[2] = request->getParam("L3")->value().toInt();
+
+                    CalcIsum();
+                    for (int x = 0; x < 3; x++) {
+                        doc["original"]["L" + x] = IrmsOriginal[x];
+                        doc["L" + x] = Irms[x];
+                    }
+                    doc["TOTAL"] = Isum;
+
+                    MainsMeterTimeout = COMM_TIMEOUT;
+
+                    UpdateCurrentData();
+                } else
+                    doc["TOTAL"] = "not allowed on slave";
+            }
+        }
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", json.c_str());    // Yes. Respond JSON
     } else {                                                                    // if everything else fails, serve static page
         struct mg_fs fs = mg_fs_posix;
         fs.st = my_stat;
@@ -4285,47 +4322,6 @@ void StartwebServer(void) {
     mg_log_set(MG_LL_DEBUG);
 
     //end mongoose
-
-    webServer.on("/currents", HTTP_POST, [](AsyncWebServerRequest *request) {
-        DynamicJsonDocument doc(200);
-
-        if(request->hasParam("battery_current")) {
-            if (LoadBl < 2) {
-                homeBatteryCurrent = request->getParam("battery_current")->value().toInt();
-                homeBatteryLastUpdate = time(NULL);
-                doc["battery_current"] = homeBatteryCurrent;
-            } else
-                doc["battery_current"] = "not allowed on slave";
-        }
-
-        if(MainsMeter == EM_API) {
-            if(request->hasParam("L1") && request->hasParam("L2") && request->hasParam("L3")) {
-                if (LoadBl < 2) {
-                    Irms[0] = request->getParam("L1")->value().toInt();
-                    Irms[1] = request->getParam("L2")->value().toInt();
-                    Irms[2] = request->getParam("L3")->value().toInt();
-
-                    CalcIsum();
-                    for (int x = 0; x < 3; x++) {
-                        doc["original"]["L" + x] = IrmsOriginal[x];
-                        doc["L" + x] = Irms[x];
-                    }
-                    doc["TOTAL"] = Isum;
-
-                    MainsMeterTimeout = COMM_TIMEOUT;
-
-                    UpdateCurrentData();
-                } else
-                    doc["TOTAL"] = "not allowed on slave";
-            }
-        }
-
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json);
-
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-    });
 
     webServer.on("/ev_meter", HTTP_POST, [](AsyncWebServerRequest *request) {
         DynamicJsonDocument doc(200);
