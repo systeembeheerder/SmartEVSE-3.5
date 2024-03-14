@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>example</title>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      #container { margin-right: auto; margin-left: auto; max-width: 480px; }
+      #info { background: #e0f0f0; border-radius: .5em; padding: 2em;  }
+      #wrapper { margin-top: 1em; }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="info">
+        Pick and choose your spiffs.bin file to flash.
+      </div>
+      <div id="wrapper">
+        <input type="file" id="el1" style="display: none"/>
+        <button id="el2">choose file...</button>
+        <div id="el3"></div>
+      </div>
+    </div>
+  </body>
+  <script src="app.js"></script>
+</html>

@@ -61,14 +61,16 @@ struct tm timeinfo;
 
 //mongoose stuff
 #define FS_ROOT "/spiffs"
+#define MG_IO_SIZE 1000
 #define MG_ARCH MG_ARCH_ESP32
 #include "mongoose.h"
 #include "esp_spiffs.h"
 #include "esp_log.h"
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 extern String handlesettings(void);
-
 // end of mongoose stuff
+#include "esp_ota_ops.h"
+
 AsyncWebServer webServer(80);
 //AsyncWebSocket ws("/ws");           // data to/from webpage
 AsyncDNSServer dnsServer;
@@ -3830,6 +3832,12 @@ static int my_stat(const char *path, size_t *size, time_t *mtime) {
   return flags;
 }
 
+struct mg_http_part part;
+size_t ofs = 0;
+int written = 0;
+const esp_partition_t *spiffs_partition = NULL;
+esp_ota_handle_t update_handle;
+
 // Connection event handler function
 // indenting lower level two spaces to stay compatible with old StartWebServer
 static void fn(struct mg_connection *c, int ev, void *ev_data) {
@@ -4103,8 +4111,162 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
       } else {
         mg_http_reply(c, 404, "", "Not Found\n");
       }
+    //} else if (mg_http_match_uri(hm, "/update") && !memcmp("GET", hm->method.ptr, hm->method.len)) {
+    //    mg_http_reply(c, 200, "Content-Type: text/html\r\n", "First flash firmware.bin to update the main firmware.<br>Then flash spiffs.bin to update the SPIFFS partition, which provides the webserver user interface.<br>You should only flash files with those exact names.<br>If you want to telnet to your SmartEVSE to see the debug messages you should rename firmware.debug.bin to firmware.bin and flash that file.<br><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>\n");
+    } else if (mg_http_match_uri(hm, "/upload")) {
+    //} else if (mg_http_match_uri(hm, "/update") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+//        mg_http_upload(c, hm, &mg_fs_posix, "/spiffs", 99999);
 
-    } else {
+//long mg_http_upload(struct mg_connection *c, struct mg_http_message *hm, struct mg_fs *fs, const char *dir, size_t max_size) {
+        char buf[20] = "0", file[40], path[MG_PATH_MAX];
+        struct mg_fs *fs;
+        fs = &mg_fs_posix;
+        //const char *dir;
+        //dir="/spiffs";
+        size_t max_size = 0x90000;
+        long res = 0, offset;
+        mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
+        mg_http_get_var(&hm->query, "file", file, sizeof(file));
+        offset = strtol(buf, NULL, 0);
+        _LOG_A("DINGO0: file=%s, offset=%i.\n", file, offset);
+        //mg_snprintf(path, sizeof(path), "%s%c%s", dir, MG_DIRSEP, file);
+        mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
+        if (hm->body.len == 0) {
+          mg_http_reply(c, 200, "", "%ld", res);  // Nothing to write
+        } else if (file[0] == '\0') {
+          mg_http_reply(c, 400, "", "file required");
+          res = -1;
+        } else if (mg_path_is_sane(file) == false) {
+          mg_http_reply(c, 400, "", "%s: invalid file", file);
+          res = -2;
+        } else if (offset < 0) {
+          mg_http_reply(c, 400, "", "offset required");
+          res = -3;
+        } else if ((size_t) offset + hm->body.len > max_size) {
+          mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
+                        (unsigned long) max_size);
+          res = -4;
+        } else {
+          struct mg_fd *fd;
+          size_t current_size = 0;
+          MG_DEBUG(("%s -> %lu bytes @ %ld", path, hm->body.len, offset));
+          if (offset == 0) fs->rm(path);  // If offset if 0, truncate file
+/*          fs->st(path, &current_size, NULL);
+          if (offset > 0 && current_size != (size_t) offset) {
+            mg_http_reply(c, 400, "", "%s: offset mismatch", path);
+            res = -5;
+          } else*/ if ((fd = mg_fs_open(fs, path, MG_FS_WRITE)) == NULL) {
+            _LOG_A("DINGO: error open file:%s, result:%i.\n", path, errno);
+            mg_http_reply(c, 400, "", "open(%s): %d", path, errno);
+            res = -6;
+          } else { //all ok
+            //res = offset + (long) fs->wr(fd->fd, hm->body.ptr, hm->body.len);
+            _LOG_A("DINGO1: file=%s, offset=%i.\n", file, offset);
+            _LOG_A("DINGO1: writing file (%i bytes).\n", hm->body.len);
+            if (offset == 0)
+                written = 0;
+
+            if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
+              //find spiffs partition
+              esp_err_t ret;
+              if (offset == 0) {
+                spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+                //if (ret != ESP_OK)
+                //    _LOG_A("DINGO: could not find partition.\n");
+                //esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, NULL);
+                //spiffs_partition = esp_partition_get(it);
+                //esp_partition_iterator_release(it);
+              }   
+              if (spiffs_partition != NULL) {
+                  // You have found the SPIFFS partition
+                  if (offset == 0) {
+                      //_LOG_A("DINGO: partition address=%lu, size=%lu, erase_size=%lu, label=%s, encrypted=%i, readonly=%i.\n", spiffs_partition->address, spiffs_partition->size, spiffs_partition->erase_size, spiffs_partition->label, spiffs_partition->encrypted, spiffs_partition->readonly);
+                      _LOG_A("DINGO: partition address=%lu, size=%lu, label=%s, encrypted=%i.\n", spiffs_partition->address, spiffs_partition->size, spiffs_partition->label, spiffs_partition->encrypted);
+                      ret = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
+                      if (ret != ESP_OK)
+                        _LOG_A("DINGO: could not erase partition.\n");
+                      _LOG_A("SPIFFS Begin\n");
+                      //esp_ota_begin(spiffs_partition, 0x90000, &update_handle);
+                  }
+                  res = offset + hm->body.len;
+                  //res = offset + (long) fs->wr(fd->fd, hm->body.ptr, hm->body.len);
+                  _LOG_A("DINGO would be writing to partition here, res=%i, offset=%i, body.len=%i\n", res, offset, hm->body.len);
+                  ret = esp_partition_write(spiffs_partition, offset, hm->body.ptr, hm->body.len);
+                  if (ret != ESP_OK)
+                    _LOG_A("DINGO: could not write to partition.\n");
+                  //esp_err_t ret = esp_ota_write_with_offset(update_handle, hm->body.ptr, hm->body.len, offset);
+                  //esp_err_t ret = esp_partition_write_raw(spiffs_partition, offset, hm->body.ptr, hm->body.len);
+                  /*if (res != ESP_OK) 
+                    esp_ota_abort(update_handle);*/
+                  //esp_ota_write( update_handle, (const void *)hm->body, hm->body.len);
+                  written = written + offset;
+                  if (res == 589824) {                                 // EOF TODO dirty!!!
+                  //if (hm->body.len < 2048) {                                 // EOF TODO dirty!!!
+                  //if (offset >= written) {                                 // EOF
+                    _LOG_A("SPIFFS End.\n");
+                    //esp_ota_end(update_handle);
+                  } 
+              } else {
+                // Handle the case where SPIFFS partition is not found
+                // esp_ota_abort(update_handle);
+              }
+            }
+          } //end all ok
+          mg_fs_close(fd);
+          mg_http_reply(c, 200, "", "%ld", res);
+        }
+  //return res;
+//}
+/*
+    size_t index = offset;
+    String filename;
+    strncpy(filename,file, sizeof(filename)); 
+        if(!index) {
+            _LOG_A("\nUpdate Start: %s\n", filename.c_str());
+                if (filename == "spiffs.bin" ) {
+                    _LOG_A("\nSPIFFS partition write\n");
+                    // Partition size is 0x90000
+                    if(!Update.begin(0x90000, U_SPIFFS)) {
+                        Update.printError(Serial);
+                    }    
+                } else if(!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000), U_FLASH) {
+                    Update.printError(Serial);
+                }    
+        }
+        if(!Update.hasError()) {
+            if(Update.write(data, len) != len) {
+                Update.printError(Serial);
+            } else {
+                _LOG_A("bytes written %u\r", index+len);
+            }
+        }
+        if(final) {
+            if(Update.end(true)) {
+                _LOG_A("\nUpdate Success\n");
+            } else {
+                Update.printError(Serial);
+            }
+        }
+*/
+
+/*
+#define CHUNK_SIZE 1000 
+        //if ((ofs = mg_http_next_multipart(hm->body, ofs, &part)) > 0) {
+        while ((ofs = mg_http_next_multipart(hm->body, ofs, &part)) > 0) {
+            _LOG_A("Chunk name: [%.*s] filename: [%.*s] length: %lu bytes.\n", (int) part.name.len, part.name.ptr, (int) part.filename.len, part.filename.ptr, (unsigned long) part.body.len);
+        }
+        if (ofs >= part.body.len)
+            mg_http_reply(c, 200, "", "Thank you!");
+
+/*
+       bool shouldReboot = !Update.hasError();
+        mg_http_reply(c, 200, "text/plain\r\n" "Connection: close\r\n", shouldReboot?"OK":"FAIL");
+        delay(500);
+        if (shouldReboot) ESP.restart();
+    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+    });*/
+///////
+    } else {                                                                    // if everything else fails, serve static page
         struct mg_fs fs = mg_fs_posix;
         fs.st = my_stat;
         struct mg_http_serve_opts opts = {.root_dir = FS_ROOT, .ssi_pattern = NULL, .extra_headers = NULL, .mime_types = NULL, .page404 = NULL, .fs = &fs };
@@ -4170,7 +4332,7 @@ void StartwebServer(void) {
 */
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL);  // Setup listener
-    mg_log_set(7);
+    mg_log_set(MG_LL_DEBUG);
 
     //end mongoose
 
