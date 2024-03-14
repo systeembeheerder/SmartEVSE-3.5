@@ -3833,6 +3833,9 @@ static int my_stat(const char *path, size_t *size, time_t *mtime) {
 }
 
 const esp_partition_t *spiffs_partition = NULL;
+/* update handle : set by esp_ota_begin(), must be freed via esp_ota_end() */
+esp_ota_handle_t update_handle = 0 ;
+const esp_partition_t *update_partition = NULL;
 
 // Connection event handler function
 // indenting lower level two spaces to stay compatible with old StartWebServer
@@ -4110,7 +4113,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
     } else if (mg_http_match_uri(hm, "/update")) {
         //modified version of mg_http_upload
         char buf[20] = "0", file[40], path[MG_PATH_MAX];
-        size_t max_size = 0x90000;
+        size_t max_size = 1500000;
         long res = 0, offset;
         mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
         mg_http_get_var(&hm->query, "file", file, sizeof(file));
@@ -4157,8 +4160,135 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                   }*/
               }
             } //end of spiffs.bin
-/*            if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
-              //find spiffs partition
+            if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
+                esp_err_t err;
+                if (offset == 0) {
+                    update_partition = esp_ota_get_next_update_partition(NULL);
+                    assert(update_partition != NULL);
+                    _LOG_A("Current boot parition %s.\n", esp_ota_get_boot_partition()->label);
+                    _LOG_A("Currently running off parition %s.\n", esp_ota_get_running_partition()->label);
+                    _LOG_A("Writing to partition subtype %d at offset 0x%" PRIx32, update_partition->subtype, update_partition->address);
+                    _LOG_A("Writing to partition %s.\n", update_partition->label);
+                    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+                    //err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
+                    if (err != ESP_OK)
+                        _LOG_A("ERROR: esp_ota_begin failed (%s)\n", esp_err_to_name(err));
+                        //esp_ota_abort(update_handle);
+                }
+                res = offset + hm->body.len;
+//                int binary_file_length = 0;
+                        err = esp_ota_write_with_offset( update_handle, (const void *)hm->body.ptr, hm->body.len, offset);
+                        if (err != ESP_OK) {
+                            _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
+                            //no esp_ota_abort here?
+                        }
+                        _LOG_A("DINGO: Offset=%d, Written image length %d\n", offset, res);
+/*                //deal with all receive packet
+                bool image_header_was_checked = false;
+                //while (1) {
+                    int data_read = esp_http_client_read(client, ota_write_data, BUFFSIZE);
+                    if (data_read < 0) {
+                        ESP_LOGE(TAG, "Error: SSL data read error");
+                        http_cleanup(client);
+                        task_fatal_error();
+                    } else if (data_read > 0) {
+                        if (image_header_was_checked == false) {
+                            esp_app_desc_t new_app_info;
+                            if (data_read > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
+                                // check current version with downloading
+                                memcpy(&new_app_info, &ota_write_data[sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t)], sizeof(esp_app_desc_t));
+                                ESP_LOGI(TAG, "New firmware version: %s", new_app_info.version);
+            
+                                esp_app_desc_t running_app_info;
+                                if (esp_ota_get_partition_description(running, &running_app_info) == ESP_OK) {
+                                    ESP_LOGI(TAG, "Running firmware version: %s", running_app_info.version);
+                                }
+            
+                                const esp_partition_t* last_invalid_app = esp_ota_get_last_invalid_partition();
+                                esp_app_desc_t invalid_app_info;
+                                if (esp_ota_get_partition_description(last_invalid_app, &invalid_app_info) == ESP_OK) {
+                                    ESP_LOGI(TAG, "Last invalid firmware version: %s", invalid_app_info.version);
+                                }
+            
+                                // check current version with last invalid partition
+                                if (last_invalid_app != NULL) {
+                                    if (memcmp(invalid_app_info.version, new_app_info.version, sizeof(new_app_info.version)) == 0) {
+                                        ESP_LOGW(TAG, "New version is the same as invalid version.");
+                                        ESP_LOGW(TAG, "Previously, there was an attempt to launch the firmware with %s version, but it failed.", invalid_app_info.version);
+                                        ESP_LOGW(TAG, "The firmware has been rolled back to the previous version.");
+                                        http_cleanup(client);
+                                        infinite_loop();
+                                    }
+                                }
+            #ifndef CONFIG_EXAMPLE_SKIP_VERSION_CHECK
+                                if (memcmp(new_app_info.version, running_app_info.version, sizeof(new_app_info.version)) == 0) {
+                                    ESP_LOGW(TAG, "Current running version is the same as a new. We will not continue the update.");
+                                    http_cleanup(client);
+                                    infinite_loop();
+                                }
+            #endif
+            
+                                image_header_was_checked = true;
+            
+                                if (err != ESP_OK) {
+                                    ESP_LOGE(TAG, "esp_ota_begin failed (%s)", esp_err_to_name(err));
+                                    http_cleanup(client);
+                                    esp_ota_abort(update_handle);
+                                    task_fatal_error();
+                                }
+                                ESP_LOGI(TAG, "esp_ota_begin succeeded");
+                            } else {
+                                ESP_LOGE(TAG, "received package is not fit len");
+                                http_cleanup(client);
+                                esp_ota_abort(update_handle);
+                                task_fatal_error();
+                            }
+                        }*/
+/*                    } else if (data_read == 0) {
+                       //
+                        * As esp_http_client_read never returns negative error code, we rely on
+                        * `errno` to check for underlying transport connectivity closure if any
+                        *
+                        if (errno == ECONNRESET || errno == ENOTCONN) {
+                            ESP_LOGE(TAG, "Connection closed, errno = %d", errno);
+                            break;
+                        }
+                        if (esp_http_client_is_complete_data_received(client) == true) {
+                            ESP_LOGI(TAG, "Connection closed");
+                            break;
+                        }
+                    }
+                //}//end while*/
+                if (hm->body.len < 20480) {  //TODO: how do I get the end of the transfer?
+                //if (res >= 1207680) {  //TODO: how do I get the end of the transfer?
+                    _LOG_A("Total Write binary data length: %d\n", res);
+                    //delay(3); 
+                    err = esp_ota_end(update_handle);
+                    if (err != ESP_OK) {
+                        if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
+                            _LOG_A("Image validation failed, image is corrupted\n");
+                        } else {
+                            _LOG_A("esp_ota_end failed (%s)!\n", esp_err_to_name(err));
+                        }
+                        const esp_partition_t *ver_part = esp_partition_verify(update_partition);
+                        if (ver_part == NULL)
+                            _LOG_A("Verified partition %s FAIL", update_partition->label);
+                        else
+                            _LOG_A("Verified partition %s SUCCESS", ver_part->label);
+                    }
+                    else {
+                        err = esp_ota_set_boot_partition(update_partition);
+                        if (err != ESP_OK) {
+                            _LOG_A("esp_ota_set_boot_partition failed (%s)!\n", esp_err_to_name(err));
+                        }
+                        else
+                            _LOG_A("Set boot partition to %s.\n", update_partition->label);
+                        _LOG_A("Prepare to restart system!\n");
+                        esp_restart();
+                    }
+                }
+
+/*              //find spiffs partition
               esp_err_t ret;
               if (offset == 0) {
                 spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
@@ -4193,8 +4323,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
               } else {
                 // Handle the case where SPIFFS partition is not found
                 // esp_ota_abort(update_handle);
-              }
-            }//end of firmware.bin */
+              }*/
+            }//end of firmware.bin
           mg_http_reply(c, 200, "", "%ld", res);
         }
   //return res;
