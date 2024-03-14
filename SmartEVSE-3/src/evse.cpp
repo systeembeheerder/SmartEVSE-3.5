@@ -4107,9 +4107,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
       } else {
         mg_http_reply(c, 404, "", "Not Found\n");
       }
-    //} else if (mg_http_match_uri(hm, "/update") && !memcmp("GET", hm->method.ptr, hm->method.len)) {
-    //    mg_http_reply(c, 200, "Content-Type: text/html\r\n", "First flash firmware.bin to update the main firmware.<br>Then flash spiffs.bin to update the SPIFFS partition, which provides the webserver user interface.<br>You should only flash files with those exact names.<br>If you want to telnet to your SmartEVSE to see the debug messages you should rename firmware.debug.bin to firmware.bin and flash that file.<br><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>\n");
-    } else if (mg_http_match_uri(hm, "/upload")) {
+    } else if (mg_http_match_uri(hm, "/update")) {
         //modified version of mg_http_upload
         char buf[20] = "0", file[40], path[MG_PATH_MAX];
         size_t max_size = 0x90000;

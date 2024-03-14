@@ -17,7 +17,7 @@ var sendFileData = function(name, data, chunkSize) {
   var sendChunk = function(offset) {
     var chunk = data.subarray(offset, offset + chunkSize) || '';
     var opts = {method: 'POST', body: chunk};
-    var url = '/upload?offset=' + offset + '&file=' + encodeURIComponent(name);
+    var url = '/update?offset=' + offset + '&file=' + encodeURIComponent(name);
     var ok;
     setStatus(
         'Uploading ' + name + ', bytes ' + offset + '..' +
@@ -43,6 +43,6 @@ input.onchange = function(ev) {
   r.readAsArrayBuffer(f);
   r.onload = function() {
     ev.target.value = '';
-    sendFileData(f.name, new Uint8Array(r.result), 2048);
+    sendFileData(f.name, new Uint8Array(r.result), 20480);
   };
 };
