@@ -17,7 +17,7 @@ var sendFileData = function(name, data, chunkSize) {
   var sendChunk = function(offset) {
     var chunk = data.subarray(offset, offset + chunkSize) || '';
     var opts = {method: 'POST', body: chunk};
-    var url = '/update?offset=' + offset + '&file=' + encodeURIComponent(name);
+    var url = '/update?offset=' + offset + '&file=' + encodeURIComponent(name) + '&size=' + data.length;
     var ok;
     setStatus(
         'Uploading ' + name + ', bytes ' + offset + '..' +

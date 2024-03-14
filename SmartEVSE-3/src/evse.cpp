@@ -4114,10 +4114,13 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         //modified version of mg_http_upload
         char buf[20] = "0", file[40], path[MG_PATH_MAX];
         size_t max_size = 1500000;
-        long res = 0, offset;
+        long res = 0, offset, size;
         mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
         mg_http_get_var(&hm->query, "file", file, sizeof(file));
         offset = strtol(buf, NULL, 0);
+        buf[0] = '0';
+        mg_http_get_var(&hm->query, "size", buf, sizeof(buf));
+        size = strtol(buf, NULL, 0);
         mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
         if (hm->body.len == 0) {
           mg_http_reply(c, 200, "", "%ld", res);  // Nothing to write
@@ -4134,6 +4137,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
           mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
                         (unsigned long) max_size);
           res = -4;
+        } else if (size <= 0) {
+          mg_http_reply(c, 400, "", "size required");
+          res = -5;
         } else {
             if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
               //find spiffs partition
@@ -4155,7 +4161,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     _LOG_A("ERROR: could not write to partition.\n");
                   // is reboot really necessary after updating spiffs partition?
                   // mongoose reads new files fine after refresh
-/*                  if (res == 589824) {                                 // EOF TODO dirty!!!
+/*                  if (res >= size) {                                 // EOF
                     ESP.restart();
                   }*/
               }
@@ -4182,10 +4188,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     //no esp_ota_abort here?
                 }
                 _LOG_A("DINGO: Offset=%d, Written image length %d\n", offset, res);
-                if (hm->body.len < 20480) {  //TODO: how do I get the end of the transfer?
-                //if (res >= 1207680) {  //TODO: how do I get the end of the transfer?
+                if (offset >= size) {                                           //EOF
                     _LOG_A("Total Write binary data length: %d\n", res);
-                    //delay(3); 
                     err = esp_ota_end(update_handle);
                     if (err != ESP_OK) {
                         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
