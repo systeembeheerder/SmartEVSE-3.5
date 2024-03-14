@@ -3832,10 +3832,6 @@ static int my_stat(const char *path, size_t *size, time_t *mtime) {
   return flags;
 }
 
-const esp_partition_t *spiffs_partition = NULL;
-esp_ota_handle_t update_handle = 0 ;
-const esp_partition_t *update_partition = NULL;
-
 // Connection event handler function
 // indenting lower level two spaces to stay compatible with old StartWebServer
 static void fn(struct mg_connection *c, int ev, void *ev_data) {
@@ -4141,7 +4137,9 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
           res = -5;
         } else {
             if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
+
               //find spiffs partition
+              static const esp_partition_t *spiffs_partition = NULL;
               esp_err_t ret;
               if (offset == 0)
                 spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
@@ -4165,6 +4163,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
               }
             } //end of spiffs.bin
             if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
+                static esp_ota_handle_t update_handle = 0 ;
+                static const esp_partition_t *update_partition = NULL;
                 esp_err_t err;
                 if (offset == 0) {
                     update_partition = esp_ota_get_next_update_partition(NULL);
@@ -4186,7 +4186,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     //no esp_ota_abort here?
                 }
                 if (offset >= size) {                                           //EOF
-                    _LOG_A("Total Write binary data length: %d\n", res);
+                    _LOG_A("Total Write binary data length: %lu\n", res);
                     err = esp_ota_end(update_handle);
                     if (err != ESP_OK) {
                         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
