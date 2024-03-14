@@ -3833,7 +3833,6 @@ static int my_stat(const char *path, size_t *size, time_t *mtime) {
 }
 
 const esp_partition_t *spiffs_partition = NULL;
-/* update handle : set by esp_ota_begin(), must be freed via esp_ota_end() */
 esp_ota_handle_t update_handle = 0 ;
 const esp_partition_t *update_partition = NULL;
 
@@ -4123,7 +4122,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         size = strtol(buf, NULL, 0);
         mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
         if (hm->body.len == 0) {
-          mg_http_reply(c, 200, "", "%ld", res);  // Nothing to write
+          mg_http_reply(c, 200, "", "nothing to write");  // Nothing to write
         } else if (file[0] == '\0') {
           mg_http_reply(c, 400, "", "file required");
           res = -1;
@@ -4149,7 +4148,6 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
               if (spiffs_partition != NULL) {
                   // You have found the SPIFFS partition
                   if (offset == 0) {
-                      //_LOG_A("DINGO: partition address=%lu, size=%lu, label=%s, encrypted=%i.\n", spiffs_partition->address, spiffs_partition->size, spiffs_partition->label, spiffs_partition->encrypted);
                       ret = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
                       if (ret != ESP_OK)
                         _LOG_A("ERROR: could not erase partition.\n");
@@ -4187,7 +4185,6 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
                     //no esp_ota_abort here?
                 }
-                _LOG_A("DINGO: Offset=%d, Written image length %d\n", offset, res);
                 if (offset >= size) {                                           //EOF
                     _LOG_A("Total Write binary data length: %d\n", res);
                     err = esp_ota_end(update_handle);
