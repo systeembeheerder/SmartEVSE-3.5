@@ -4286,46 +4286,6 @@ void StartwebServer(void) {
 
     //end mongoose
 
-    webServer.on("/update", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(200, "text/html", "First flash firmware.bin to update the main firmware.<br>Then flash spiffs.bin to update the SPIFFS partition, which provides the webserver user interface.<br>You should only flash files with those exact names.<br>If you want to telnet to your SmartEVSE to see the debug messages you should rename firmware.debug.bin to firmware.bin and flash that file.<br><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>");
-    });
-
-    webServer.on("/update", HTTP_POST, [](AsyncWebServerRequest *request) {
-       bool shouldReboot = !Update.hasError();
-        AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", shouldReboot?"OK":"FAIL");
-        response->addHeader("Connection", "close");
-        request->send(response);
-        delay(500);
-        if (shouldReboot) ESP.restart();
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-        if(!index) {
-            _LOG_A("\nUpdate Start: %s\n", filename.c_str());
-                if (filename == "spiffs.bin" ) {
-                    _LOG_A("\nSPIFFS partition write\n");
-                    // Partition size is 0x90000
-                    if(!Update.begin(0x90000, U_SPIFFS)) {
-                        Update.printError(Serial);
-                    }    
-                } else if(!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000), U_FLASH) {
-                    Update.printError(Serial);
-                }    
-        }
-        if(!Update.hasError()) {
-            if(Update.write(data, len) != len) {
-                Update.printError(Serial);
-            } else {
-                _LOG_A("bytes written %u\r", index+len);
-            }
-        }
-        if(final) {
-            if(Update.end(true)) {
-                _LOG_A("\nUpdate Success\n");
-            } else {
-                Update.printError(Serial);
-            }
-        }
-    });
-
     webServer.on("/currents", HTTP_POST, [](AsyncWebServerRequest *request) {
         DynamicJsonDocument doc(200);
 
