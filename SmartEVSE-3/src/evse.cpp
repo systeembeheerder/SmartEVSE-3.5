@@ -71,7 +71,7 @@ extern String handlesettings(void);
 // end of mongoose stuff
 #include "esp_ota_ops.h"
 
-AsyncWebServer webServer(80);
+//AsyncWebServer webServer(80);
 //AsyncWebSocket ws("/ws");           // data to/from webpage
 AsyncDNSServer dnsServer;
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
@@ -3762,8 +3762,6 @@ void onRequest(AsyncWebServerRequest *request){
 
 
 void StopwebServer(void) {
-    // ws.closeAll();
-    webServer.end();
     mg_mgr_free(&mgr);
 }
 
@@ -4475,15 +4473,6 @@ void StartwebServer(void) {
     mg_log_set(MG_LL_DEBUG);
 
     //end mongoose
-
-    // attach filesystem root at URL /
-    webServer.serveStatic("/", SPIFFS, "/");
-
-    // setup 404 handler 'onRequest'
-    webServer.onNotFound(onRequest);
-
-    // Setup async webserver
-    webServer.begin();
     _LOG_A("HTTP server started\n");
 
 }
