@@ -7,19 +7,6 @@
 #include <SPIFFS.h>
 
 #include <WiFi.h>
-#include <AsyncTCP.h>
-
-#define USE_ESP_WIFIMANAGER_NTP true
-#define USING_AFRICA        false
-#define USING_AMERICA       false
-#define USING_ANTARCTICA    false
-#define USING_ASIA          false
-#define USING_ATLANTIC      false
-#define USING_AUSTRALIA     false
-#define USING_EUROPE        true
-#define USING_INDIAN        false
-#define USING_PACIFIC       false
-#define USING_ETC_GMT       false
 #include <WiFiManager.h>
 
 #include <ESPmDNS.h>
@@ -4497,7 +4484,7 @@ void timeSyncCallback(struct timeval *tv)
 
 // Setup Wifi 
 void WiFiSetup(void) {
-
+    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
     //wifiManager.setDebugOutput(true);
     wifiManager.setMinimumSignalQuality(-1);
 
@@ -4528,7 +4515,6 @@ void WiFiSetup(void) {
     Debug.begin(APhostname, 23, 1);
     Debug.showColors(true); // Colors
 #endif
-    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
     StartwebServer();
 }
 
