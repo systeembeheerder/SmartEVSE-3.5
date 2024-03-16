@@ -3752,16 +3752,6 @@ String processor(const String& var){
 }
 
 
-//
-// 404 (page not found) handler
-// 
-void onRequest(WebServerRequest *request){
-    //Handle Unknown Request
-    request->send(404);
-}
-
-
-
 void StopwebServer(void) {
     mg_mgr_free(&mgr);
 }
