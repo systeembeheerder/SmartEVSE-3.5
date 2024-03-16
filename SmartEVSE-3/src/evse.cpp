@@ -7,6 +7,7 @@
 #include <SPIFFS.h>
 
 #include <WiFi.h>
+
 #include <WiFiManager.h>
 
 #include <ESPmDNS.h>
@@ -57,7 +58,6 @@ extern String handlesettings(void);
 // end of mongoose stuff
 #include "esp_ota_ops.h"
 
-//AsyncDNSServer dnsServer;
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
 
 #if MQTT
@@ -72,7 +72,6 @@ TaskHandle_t MqttTaskHandle = NULL;
 uint8_t lastMqttUpdate = 0;
 #endif
 
-//ESPAsync_WiFiManager ESPAsync_wifiManager(&webServer, &dnsServer, APhostname.c_str());
 WiFiManager wifiManager;
 
 // SSID and PW for your Router
@@ -4523,6 +4522,12 @@ void SetupPortalTask(void * parameter) {
     StopwebServer();
     WiFi.disconnect(true);
     wifiManager.setAPStaticIPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
+    //wifiManager.setTitle(String title);
+
+    //don't show firmware update buttons in portal
+    std::vector<const char*> wmMenuItems = { "wifi", "info", "erase", "exit" };
+    wifiManager.setMenu(wmMenuItems);
+    wifiManager.setShowInfoUpdate(false);
 
     wifiManager.setConfigPortalTimeout(120);  // Portal will be available 2 minutes to connect to, then close. (if connected within this time, it will remain active)
     delay(1000);
