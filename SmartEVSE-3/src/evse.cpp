@@ -4407,6 +4407,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
     } else {                                                                    // if everything else fails, serve static page
         struct mg_fs fs = mg_fs_posix;
         fs.st = my_stat;
+        //in order to enable ssi, compile with -DMG_ENABLE_SSI=1
+        //struct mg_http_serve_opts opts = {.root_dir = FS_ROOT, .ssi_pattern = "/spiffs/index.html", .extra_headers = NULL, .mime_types = NULL, .page404 = NULL, .fs = &fs };
         struct mg_http_serve_opts opts = {.root_dir = FS_ROOT, .ssi_pattern = NULL, .extra_headers = NULL, .mime_types = NULL, .page404 = NULL, .fs = &fs };
         opts.fs = NULL;
         mg_http_serve_dir(c, hm, &opts);
