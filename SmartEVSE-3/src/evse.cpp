@@ -4253,6 +4253,148 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         String json;
         serializeJson(doc, json);
         mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", json.c_str());    // Yes. Respond JSON
+
+    } else if (mg_http_match_uri(hm, "/ev_meter") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+        DynamicJsonDocument doc(200);
+
+        if(EVMeter == EM_API) {
+            if(request->hasParam("L1") && request->hasParam("L2") && request->hasParam("L3")) {
+
+                Irms_EV[0] = request->getParam("L1")->value().toInt();
+                Irms_EV[1] = request->getParam("L2")->value().toInt();
+                Irms_EV[2] = request->getParam("L3")->value().toInt();
+
+                if (LoadBl < 2) EVMeterTimeout = COMM_EVTIMEOUT;
+
+                UpdateCurrentData();
+            }
+
+            if(request->hasParam("import_active_energy") && request->hasParam("export_active_energy") && request->hasParam("import_active_power")) {
+
+                EV_import_active_energy = request->getParam("import_active_energy")->value().toInt();
+                EV_export_active_energy = request->getParam("export_active_energy")->value().toInt();
+
+                PowerMeasured = request->getParam("import_active_power")->value().toInt();
+                
+                EnergyEV = EV_import_active_energy - EV_export_active_energy;
+                if (ResetKwh == 2) EnergyMeterStart = EnergyEV;                 // At powerup, set EnergyEV to kwh meter value
+                EnergyCharged = EnergyEV - EnergyMeterStart;                    // Calculate Energy
+                if (Modem)
+                    RecomputeSoC();
+            }
+        }
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", json.c_str());    // Yes. Respond JSON
+
+    } else if (mg_http_match_uri(hm, "/reboot") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+        DynamicJsonDocument doc(20);
+
+        ESP.restart();
+        doc["reboot"] = true;
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", json.c_str());    // Yes. Respond JSON
+
+    } else if (mg_http_match_uri(hm, "/ev_state") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+        DynamicJsonDocument doc(200);
+
+        //State of charge posting
+        int current_soc = request->getParam("current_soc")->value().toInt();
+        int full_soc = request->getParam("full_soc")->value().toInt();
+
+        // Energy requested by car
+        int energy_request = request->getParam("energy_request")->value().toInt();
+
+        // Total energy capacity of car's battery
+        int energy_capacity = request->getParam("energy_capacity")->value().toInt();
+
+        // Update EVCCID of car
+        if (request->hasParam("evccid")) {
+            if (request->getParam("evccid")->value().length() <= 32) {
+                strncpy(EVCCID, request->getParam("evccid")->value().c_str(), sizeof(EVCCID));
+                doc["evccid"] = EVCCID;
+            }
+        }
+
+        if (full_soc >= FullSoC) // Only update if we received it, since sometimes it's there, sometimes it's not
+            FullSoC = full_soc;
+
+        if (energy_capacity >= EnergyCapacity) // Only update if we received it, since sometimes it's there, sometimes it's not
+            EnergyCapacity = energy_capacity;
+
+        if (energy_request >= EnergyRequest) // Only update if we received it, since sometimes it's there, sometimes it's not
+            EnergyRequest = energy_request;
+
+        if (current_soc >= 0 && current_soc <= 100) {
+            // We set the InitialSoC for our own calculations
+            InitialSoC = current_soc;
+
+            // We also set the ComputedSoC to allow for app integrations
+            ComputedSoC = current_soc;
+
+            // Skip waiting, charge since we have what we've got
+            if (State == STATE_MODEM_REQUEST || State == STATE_MODEM_WAIT || State == STATE_MODEM_DONE){
+                _LOG_A("Received SoC via REST. Shortcut to State Modem Done\n");
+                setState(STATE_MODEM_DONE); // Go to State B, which means in this case setting PWM
+            }
+        }
+
+        RecomputeSoC();
+
+        doc["current_soc"] = current_soc;
+        doc["full_soc"] = full_soc;
+        doc["energy_capacity"] = energy_capacity;
+        doc["energy_request"] = energy_request;
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", json.c_str());    // Yes. Respond JSON
+
+#if FAKE_RFID
+    //this can be activated by: http://smartevse-xxx.lan/debug?showrfid=1
+    } else if (mg_http_match_uri(hm, "/debug") && !memcmp("GET", hm->method.ptr, hm->method.len)) {
+        if(request->hasParam("showrfid")) {
+            Show_RFID = strtol(request->getParam("showrfid")->value().c_str(),NULL,0);
+        }
+        _LOG_A("DEBUG: Show_RFID=%u.\n",Show_RFID);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", ""); //json request needs json response
+#endif
+
+#if AUTOMATED_TESTING
+    //this can be activated by: http://smartevse-xxx.lan/automated_testing?current_max=100
+    //WARNING: because of automated testing, no limitations here!
+    //THAT IS DANGEROUS WHEN USED IN PRODUCTION ENVIRONMENT
+    //FOR SMARTEVSE's IN A TESTING BENCH ONLY!!!!
+    } else if (mg_http_match_uri(hm, "/automated_testing") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
+        if(request->hasParam("current_max")) {
+            MaxCurrent = strtol(request->getParam("current_max")->value().c_str(),NULL,0);
+        }
+        if(request->hasParam("current_main")) {
+            MaxMains = strtol(request->getParam("current_main")->value().c_str(),NULL,0);
+        }
+        if(request->hasParam("current_max_circuit")) {
+            MaxCircuit = strtol(request->getParam("current_max_circuit")->value().c_str(),NULL,0);
+        }
+        if(request->hasParam("mainsmeter")) {
+            MainsMeter = strtol(request->getParam("mainsmeter")->value().c_str(),NULL,0);
+        }
+        if(request->hasParam("evmeter")) {
+            EVMeter = strtol(request->getParam("evmeter")->value().c_str(),NULL,0);
+        }
+        if(request->hasParam("config")) {
+            Config = strtol(request->getParam("config")->value().c_str(),NULL,0);
+            setState(STATE_A);                                                  // so the new value will actually be read
+        }
+        if(request->hasParam("loadbl")) {
+            int LBL = strtol(request->getParam("loadbl")->value().c_str(),NULL,0);
+            ConfigureModbusMode(LBL);
+            LoadBl = LBL;
+        }
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\r\n", ""); //json request needs json response
+#endif
     } else {                                                                    // if everything else fails, serve static page
         struct mg_fs fs = mg_fs_posix;
         fs.st = my_stat;
@@ -4322,159 +4464,6 @@ void StartwebServer(void) {
     mg_log_set(MG_LL_DEBUG);
 
     //end mongoose
-
-    webServer.on("/ev_meter", HTTP_POST, [](AsyncWebServerRequest *request) {
-        DynamicJsonDocument doc(200);
-
-        if(EVMeter == EM_API) {
-            if(request->hasParam("L1") && request->hasParam("L2") && request->hasParam("L3")) {
-
-                Irms_EV[0] = request->getParam("L1")->value().toInt();
-                Irms_EV[1] = request->getParam("L2")->value().toInt();
-                Irms_EV[2] = request->getParam("L3")->value().toInt();
-
-                if (LoadBl < 2) EVMeterTimeout = COMM_EVTIMEOUT;
-
-                UpdateCurrentData();
-            }
-
-            if(request->hasParam("import_active_energy") && request->hasParam("export_active_energy") && request->hasParam("import_active_power")) {
-
-                EV_import_active_energy = request->getParam("import_active_energy")->value().toInt();
-                EV_export_active_energy = request->getParam("export_active_energy")->value().toInt();
-
-                PowerMeasured = request->getParam("import_active_power")->value().toInt();
-                
-                EnergyEV = EV_import_active_energy - EV_export_active_energy;
-                if (ResetKwh == 2) EnergyMeterStart = EnergyEV;                 // At powerup, set EnergyEV to kwh meter value
-                EnergyCharged = EnergyEV - EnergyMeterStart;                    // Calculate Energy
-                if (Modem)
-                    RecomputeSoC();
-            }
-        }
-
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json);
-
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-    });    
-
-    webServer.on("/reboot", HTTP_POST, [](AsyncWebServerRequest *request) {
-        DynamicJsonDocument doc(200);
-
-        ESP.restart();
-        doc["reboot"] = true;
-
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json);
-
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-    });
-
-    webServer.on("/ev_state", HTTP_POST, [](AsyncWebServerRequest *request) {
-        DynamicJsonDocument doc(200);
-
-        //State of charge posting
-        int current_soc = request->getParam("current_soc")->value().toInt();
-        int full_soc = request->getParam("full_soc")->value().toInt();
-
-        // Energy requested by car
-        int energy_request = request->getParam("energy_request")->value().toInt();
-
-        // Total energy capacity of car's battery
-        int energy_capacity = request->getParam("energy_capacity")->value().toInt();
-
-        // Update EVCCID of car
-        if (request->hasParam("evccid")) {
-            if (request->getParam("evccid")->value().length() <= 32) {
-                strncpy(EVCCID, request->getParam("evccid")->value().c_str(), sizeof(EVCCID));
-                doc["evccid"] = EVCCID;
-            }
-        }
-
-        if (full_soc >= FullSoC) // Only update if we received it, since sometimes it's there, sometimes it's not
-            FullSoC = full_soc;
-
-        if (energy_capacity >= EnergyCapacity) // Only update if we received it, since sometimes it's there, sometimes it's not
-            EnergyCapacity = energy_capacity;
-
-        if (energy_request >= EnergyRequest) // Only update if we received it, since sometimes it's there, sometimes it's not
-            EnergyRequest = energy_request;
-
-        if (current_soc >= 0 && current_soc <= 100) {
-            // We set the InitialSoC for our own calculations
-            InitialSoC = current_soc;
-
-            // We also set the ComputedSoC to allow for app integrations
-            ComputedSoC = current_soc;
-
-            // Skip waiting, charge since we have what we've got
-            if (State == STATE_MODEM_REQUEST || State == STATE_MODEM_WAIT || State == STATE_MODEM_DONE){
-                _LOG_A("Received SoC via REST. Shortcut to State Modem Done\n");
-                setState(STATE_MODEM_DONE); // Go to State B, which means in this case setting PWM
-            }
-        }
-
-        RecomputeSoC();
-
-        doc["current_soc"] = current_soc;
-        doc["full_soc"] = full_soc;
-        doc["energy_capacity"] = energy_capacity;
-        doc["energy_request"] = energy_request;
-
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json);
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-    });
-
-#if FAKE_RFID
-    //this can be activated by: http://smartevse-xxx.lan/debug?showrfid=1
-    webServer.on("/debug", HTTP_GET, [](AsyncWebServerRequest *request) {
-        if(request->hasParam("showrfid")) {
-            Show_RFID = strtol(request->getParam("showrfid")->value().c_str(),NULL,0);
-        }
-        _LOG_A("DEBUG: Show_RFID=%u.\n",Show_RFID);
-        request->send(200, "text/html", "Finished request");
-    });
-#endif
-
-#if AUTOMATED_TESTING
-    //this can be activated by: http://smartevse-xxx.lan/automated_testing?current_max=100
-    //WARNING: because of automated testing, no limitations here!
-    //THAT IS DANGEROUS WHEN USED IN PRODUCTION ENVIRONMENT
-    //FOR SMARTEVSE's IN A TESTING BENCH ONLY!!!!
-    webServer.on("/automated_testing", HTTP_POST, [](AsyncWebServerRequest *request) {
-        if(request->hasParam("current_max")) {
-            MaxCurrent = strtol(request->getParam("current_max")->value().c_str(),NULL,0);
-        }
-        if(request->hasParam("current_main")) {
-            MaxMains = strtol(request->getParam("current_main")->value().c_str(),NULL,0);
-        }
-        if(request->hasParam("current_max_circuit")) {
-            MaxCircuit = strtol(request->getParam("current_max_circuit")->value().c_str(),NULL,0);
-        }
-        if(request->hasParam("mainsmeter")) {
-            MainsMeter = strtol(request->getParam("mainsmeter")->value().c_str(),NULL,0);
-        }
-        if(request->hasParam("evmeter")) {
-            EVMeter = strtol(request->getParam("evmeter")->value().c_str(),NULL,0);
-        }
-        if(request->hasParam("config")) {
-            Config = strtol(request->getParam("config")->value().c_str(),NULL,0);
-            setState(STATE_A);                                                  // so the new value will actually be read
-        }
-        if(request->hasParam("loadbl")) {
-            int LBL = strtol(request->getParam("loadbl")->value().c_str(),NULL,0);
-            ConfigureModbusMode(LBL);
-            LoadBl = LBL;
-        }
-        request->send(200, "text/html", "Finished request");
-    },[](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
-    });
-#endif
 
     // attach filesystem root at URL /
     webServer.serveStatic("/", SPIFFS, "/");
