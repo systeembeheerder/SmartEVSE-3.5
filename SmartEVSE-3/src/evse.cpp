@@ -4264,6 +4264,10 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                 Irms_EV[1] = request->getParam("L2")->value().toInt();
                 Irms_EV[2] = request->getParam("L3")->value().toInt();
 
+                for (int x = 0; x < 3; x++)
+                    doc["ev_meter"]["currents"]["L" + x] = Irms_EV[x];
+                doc["ev_meter"]["currents"]["TOTAL"] = Irms_EV[0] + Irms_EV[1] + Irms_EV[2];
+
                 if (LoadBl < 2) EVMeterTimeout = COMM_EVTIMEOUT;
 
                 UpdateCurrentData();
@@ -4281,6 +4285,11 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                 EnergyCharged = EnergyEV - EnergyMeterStart;                    // Calculate Energy
                 if (Modem)
                     RecomputeSoC();
+                doc["ev_meter"]["import_active_power"] = PowerMeasured;
+                doc["ev_meter"]["import_active_energy"] = EV_import_active_energy;
+                doc["ev_meter"]["export_active_energy"] = EV_export_active_energy;
+                doc["ev_meter"]["total_kwh"] = EnergyEV;
+                doc["ev_meter"]["charged_kwh"] = EnergyCharged;
             }
         }
 
