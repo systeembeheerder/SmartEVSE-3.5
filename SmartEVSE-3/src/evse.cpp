@@ -8,8 +8,6 @@
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
-//#include <ESPAsyncWebServer.h>
-#include <WebServer.h>
 
 #define USE_ESP_WIFIMANAGER_NTP true
 #define USING_AFRICA        false
@@ -72,7 +70,6 @@ extern String handlesettings(void);
 // end of mongoose stuff
 #include "esp_ota_ops.h"
 
-WebServer webServer(80);
 //AsyncDNSServer dnsServer;
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
 
@@ -4460,7 +4457,7 @@ void StartwebServer(void) {
     fclose(f);
 */
     mg_mgr_init(&mgr);  // Initialise event manager
-    mg_http_listen(&mgr, "http://0.0.0.0:8000", fn, NULL);  // Setup listener
+    mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
     mg_log_set(MG_LL_DEBUG);
 
     //end mongoose
