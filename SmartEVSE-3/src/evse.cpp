@@ -47,7 +47,6 @@ RemoteDebug Debug;
 struct tm timeinfo;
 
 //mongoose stuff
-#include "certs.h"
 #define FS_ROOT "/spiffs"
 #define MG_IO_SIZE 1000
 #define MG_ARCH MG_ARCH_ESP32
@@ -3799,9 +3798,9 @@ const String& webServerRequest::value() {
 
 //mongoose http_client for picking up the timezone
 //static const char *s_url = "http://info.cern.ch/";
-//static const char *s_url = "http://188.184.100.182/";
+static const char *s_url = "http://188.184.100.182/";
 //static const char *s_url = "https://104.16.44.99/timezones/data/leap-seconds.list";
-static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
+//static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
 //static const char *s_url = "https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv";
 static const char *s_post_data = NULL;      // POST data
 static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
