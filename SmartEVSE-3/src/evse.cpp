@@ -47,6 +47,7 @@ RemoteDebug Debug;
 struct tm timeinfo;
 
 //mongoose stuff
+#include "certs.h"
 #define FS_ROOT "/spiffs"
 #define MG_IO_SIZE 1000
 #define MG_ARCH MG_ARCH_ESP32
@@ -3796,6 +3797,73 @@ const String& webServerRequest::value() {
 }
 //end of wrapper
 
+//mongoose http_client for picking up the timezone
+//static const char *s_url = "http://info.cern.ch/";
+//static const char *s_url = "http://188.184.100.182/";
+//static const char *s_url = "https://104.16.44.99/timezones/data/leap-seconds.list";
+static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
+//static const char *s_url = "https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv";
+static const char *s_post_data = NULL;      // POST data
+static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
+
+// Print HTTP response and signal that we're done
+static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
+_LOG_A("DINGO: entered fn_client\n");
+  if (ev == MG_EV_OPEN) {
+_LOG_A("DINGO: checkpoint 1\n");
+    // Connection created. Store connect expiration time in c->data
+    *(uint64_t *) c->data = mg_millis() + s_timeout_ms;
+  } else if (ev == MG_EV_POLL) {
+_LOG_A("DINGO: checkpoint 2\n");
+    if (mg_millis() > *(uint64_t *) c->data &&
+        (c->is_connecting || c->is_resolving)) {
+      mg_error(c, "Connect timeout");
+    }
+  } else if (ev == MG_EV_CONNECT) {
+_LOG_A("DINGO: checkpoint 3\n");
+    // Connected to server. Extract host name from URL
+    struct mg_str host = mg_url_host(s_url);
+
+    if (mg_url_is_ssl(s_url)) {
+      //struct mg_tls_opts opts = {.cert = s_ssl_cert, .key = s_ssl_key};
+
+
+      //struct mg_tls_opts opts = {.ca = s_ca, .cert = s_ssl_cert, .key = s_ssl_key};
+      //struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
+      //                           .name = mg_url_host(s_url)};
+      mg_tls_init(c, &opts);
+    }
+
+    // Send request
+    int content_length = s_post_data ? strlen(s_post_data) : 0;
+    mg_printf(c,
+              "%s %s HTTP/1.0\r\n"
+              "Host: %.*s\r\n"
+              "Content-Type: octet-stream\r\n"
+              "Content-Length: %d\r\n"
+              "\r\n",
+              s_post_data ? "POST" : "GET", mg_url_uri(s_url), (int) host.len,
+              host.ptr, content_length);
+    mg_send(c, s_post_data, content_length);
+  } else if (ev == MG_EV_HTTP_MSG) {
+_LOG_A("DINGO: checkpoint 4\n");
+    // Response is received. Print it
+    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+    if (hm->message.len > 1) {
+        char buf[100];
+        strncpy(buf, hm->message.ptr, sizeof(buf));
+        _LOG_A("DINGO: zonelist:%s.\n", buf);
+    } else {
+        _LOG_A("DINGO: empty zonelist\n");
+    }
+    //printf("%.*s", (int) hm->message.len, hm->message.ptr);
+    c->is_draining = 1;        // Tell mongoose to close this connection
+    *(bool *) c->fn_data = true;  // Tell event loop to stop
+  } else if (ev == MG_EV_ERROR) {
+    *(bool *) c->fn_data = true;  // Error, tell event loop to stop
+  }
+}
+
 // SPIFFS is flat, so tell Mongoose that the FS root is a directory
 // This cludge is not required for filesystems with directory support
 static int my_stat(const char *path, size_t *size, time_t *mtime) {
@@ -4483,9 +4551,12 @@ void timeSyncCallback(struct timeval *tv)
 
 // Setup Wifi 
 void WiFiSetup(void) {
-    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
     //wifiManager.setDebugOutput(true);
     wifiManager.setMinimumSignalQuality(-1);
+    //WiFi.setAutoReconnect(true);
+    //WiFi.persistent(true);
+    WiFi.onEvent(onWifiEvent);
+    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
 
     // Start the mDNS responder so that the SmartEVSE can be accessed using a local hostame: http://SmartEVSE-xxxxxx.local
     if (!MDNS.begin(APhostname.c_str())) {                
@@ -4495,19 +4566,12 @@ void WiFiSetup(void) {
         MDNS.addService("http", "tcp", 80);   // announce Web server
     }
 
-    //WiFi.setAutoReconnect(true);
-    //WiFi.persistent(true);
-    WiFi.onEvent(onWifiEvent);
-
     // Init and get the time
     sntp_servermode_dhcp(1);                                                    //try to get the ntp server from dhcp
     sntp_setservername(1, "europe.pool.ntp.org");                               //fallback server
     sntp_set_time_sync_notification_cb(timeSyncCallback);
     sntp_init();
     //TODO
-    //String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
-    //setenv("TZ",TZ_INFO.c_str(),1);
-    //tzset();
 
 #if DBG == 1
     // Initialize the server (telnet or web socket) of RemoteDebug
@@ -4515,6 +4579,29 @@ void WiFiSetup(void) {
     Debug.showColors(true); // Colors
 #endif
     StartwebServer();
+    delay(3000);
+    String TZ_INFO=""; //TODO DEBUG!
+    if (!TZ_INFO || TZ_INFO == "") {                                                             //TZ_INFO string unknown
+  //struct mg_mgr mgr2;              // Event manager
+  bool done = false;              // Event handler flips it to true
+  //if (argc > 1) s_url = argv[1];  // Use URL provided in the command line
+  //mg_log_set(atoi(log_level));    // Set to 0 to disable debug
+  //mg_mgr_init(&mgr2);              // Initialise event manager
+        _LOG_A("DINGO: starting connection\n");
+        mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
+  //while (!done) mg_mgr_poll(&mgr2, 50);      // Event manager loops until 'done'
+  // mg_mgr_free(&mgr2);                        // Free resources
+
+
+    }
+
+
+    //wget https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv
+
+    //String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
+    //setenv("TZ",TZ_INFO.c_str(),1);
+    //tzset();
+
 }
 
 void SetupPortalTask(void * parameter) {
