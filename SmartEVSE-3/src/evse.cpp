@@ -3607,7 +3607,7 @@ void read_settings() {
         APpassword = preferences.getString("APpassword",AP_PASSWORD);
         DelayedStartTime.epoch2 = preferences.getULong("DelayedStartTim", DELAYEDSTARTTIME); //epoch2 is 4 bytes long on arduino; NVS key has reached max size
         DelayedStopTime.epoch2 = preferences.getULong("DelayedStopTime", DELAYEDSTOPTIME);    //epoch2 is 4 bytes long on arduino
-        TZname = preferences.getString("Timezone","Europe/Berlin");
+        TZname = preferences.getString("Timezone","");
 
         EnableC2 = (EnableC2_t) preferences.getUShort("EnableC2", ENABLE_C2);
 #if MODEM
@@ -3798,8 +3798,12 @@ const String& webServerRequest::value() {
 
 //mongoose http_client for picking up the timezone
 //static const char *s_url = "http://info.cern.ch/";
-static const char *s_url = "http://188.184.100.182/";
+//static const char *s_url = "http://188.184.100.182/";
 //static const char *s_url = "https://104.16.44.99/timezones/data/leap-seconds.list";
+//url to get current timezone in Europe/Berlin format:
+//curl "http://worldtimeapi.org/api/ip"
+static const char *s_url = "http://213.188.196.246/api/ip";
+//urls for converting timezone to posix string:
 //static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
 //static const char *s_url = "https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv";
 static const char *s_post_data = NULL;      // POST data
@@ -3807,29 +3811,21 @@ static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
 
 // Print HTTP response and signal that we're done
 static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
-_LOG_A("DINGO: entered fn_client\n");
   if (ev == MG_EV_OPEN) {
-_LOG_A("DINGO: checkpoint 1\n");
     // Connection created. Store connect expiration time in c->data
     *(uint64_t *) c->data = mg_millis() + s_timeout_ms;
   } else if (ev == MG_EV_POLL) {
-_LOG_A("DINGO: checkpoint 2\n");
     if (mg_millis() > *(uint64_t *) c->data &&
         (c->is_connecting || c->is_resolving)) {
       mg_error(c, "Connect timeout");
     }
   } else if (ev == MG_EV_CONNECT) {
-_LOG_A("DINGO: checkpoint 3\n");
     // Connected to server. Extract host name from URL
     struct mg_str host = mg_url_host(s_url);
 
     if (mg_url_is_ssl(s_url)) {
-      //struct mg_tls_opts opts = {.cert = s_ssl_cert, .key = s_ssl_key};
-
-
-      //struct mg_tls_opts opts = {.ca = s_ca, .cert = s_ssl_cert, .key = s_ssl_key};
-      //struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
-      //                           .name = mg_url_host(s_url)};
+      struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
+                                 .name = mg_url_host(s_url)};
       mg_tls_init(c, &opts);
     }
 
@@ -3845,17 +3841,16 @@ _LOG_A("DINGO: checkpoint 3\n");
               host.ptr, content_length);
     mg_send(c, s_post_data, content_length);
   } else if (ev == MG_EV_HTTP_MSG) {
-_LOG_A("DINGO: checkpoint 4\n");
     // Response is received. Print it
     struct mg_http_message *hm = (struct mg_http_message *) ev_data;
     if (hm->message.len > 1) {
-        char buf[100];
-        strncpy(buf, hm->message.ptr, sizeof(buf));
-        _LOG_A("DINGO: zonelist:%s.\n", buf);
+        struct mg_str json = hm->body;
+        char *tz = mg_json_get_str(json, "$.timezone");
+        TZname = String(tz);
+        _LOG_A("DINGO JSON result=%s.\n", TZname.c_str());
     } else {
         _LOG_A("DINGO: empty zonelist\n");
     }
-    //printf("%.*s", (int) hm->message.len, hm->message.ptr);
     c->is_draining = 1;        // Tell mongoose to close this connection
     *(bool *) c->fn_data = true;  // Tell event loop to stop
   } else if (ev == MG_EV_ERROR) {
@@ -4578,20 +4573,11 @@ void WiFiSetup(void) {
     Debug.showColors(true); // Colors
 #endif
     StartwebServer();
-    delay(3000);
+    //delay(3000);
     String TZ_INFO=""; //TODO DEBUG!
     if (!TZ_INFO || TZ_INFO == "") {                                                             //TZ_INFO string unknown
-  //struct mg_mgr mgr2;              // Event manager
-  bool done = false;              // Event handler flips it to true
-  //if (argc > 1) s_url = argv[1];  // Use URL provided in the command line
-  //mg_log_set(atoi(log_level));    // Set to 0 to disable debug
-  //mg_mgr_init(&mgr2);              // Initialise event manager
-        _LOG_A("DINGO: starting connection\n");
+        bool done = false;              // Event handler flips it to true
         mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
-  //while (!done) mg_mgr_poll(&mgr2, 50);      // Event manager loops until 'done'
-  // mg_mgr_free(&mgr2);                        // Free resources
-
-
     }
 
 
@@ -5045,6 +5031,7 @@ String handlesettings(void) {
 void loop() {
     //this loop is for non-time critical stuff that needs to run approx 1 / second
     delay(1000);
+    _LOG_A("DINGO: TZname = %s.\n", TZname.c_str());
     getLocalTime(&timeinfo, 1000U);
     if (!LocalTimeSet) {
         _LOG_A("Time not synced with NTP yet.\n");
