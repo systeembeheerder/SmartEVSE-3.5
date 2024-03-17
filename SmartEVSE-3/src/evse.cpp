@@ -3606,7 +3606,7 @@ void read_settings() {
         APpassword = preferences.getString("APpassword",AP_PASSWORD);
         DelayedStartTime.epoch2 = preferences.getULong("DelayedStartTim", DELAYEDSTARTTIME); //epoch2 is 4 bytes long on arduino; NVS key has reached max size
         DelayedStopTime.epoch2 = preferences.getULong("DelayedStopTime", DELAYEDSTOPTIME);    //epoch2 is 4 bytes long on arduino
-        TZname = preferences.getString("Timezone","Europe/Berlin");
+        TZname = preferences.getString("Timezone","");
 
         EnableC2 = (EnableC2_t) preferences.getUShort("EnableC2", ENABLE_C2);
 #if MODEM
@@ -3760,6 +3760,35 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
     return 1;
 }
 
+// takes TZname (format: Europe/Berlin) , gets TZ_INFO (posix string, format: CET-1CEST,M3.5.0,M10.5.0/3) and sets timezone accordingly
+void setTimeZone(void) {
+
+    //lookup posix string
+    FILE *fd = fopen ("/spiffs/zones.csv", "r");
+    if (fd == NULL) perror ("Error opening file /spiffs/zones.csv");
+    else {
+        bool found = false;
+        char line[70];
+        char tzname[30];
+        TZname.toCharArray(tzname, sizeof(tzname));
+        while (fgets(line, sizeof(line), fd)) {
+            found = strstr(line, tzname);
+            if (found) {
+                char *pos = strstr(line, ",");
+                pos = strstr(pos, "\"");
+                char *tz_info = pos + 1;
+                pos = strstr(pos, "\"") - 1;
+                pos = NULL; //end string with null char
+                _LOG_A("Detected Timezone info: TZname = %s, tz_info=%s.\n", tzname, tz_info);
+                setenv("TZ",tz_info,1);
+                tzset();
+                break;
+            }
+        }
+        fclose(fd);
+   }
+}
+
 // wrapper so hasParam and getParam still work
 class webServerRequest {
 private:
@@ -3794,6 +3823,66 @@ const String& webServerRequest::value() {
     return _value; // Return the string value
 }
 //end of wrapper
+
+//mongoose http_client for picking up the timezone
+//url to get current timezone in Europe/Berlin format:
+//curl "http://worldtimeapi.org/api/ip"
+static const char *s_url = "http://213.188.196.246/api/ip";
+//urls for converting timezone to posix string:
+//static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
+//static const char *s_url = "https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv";
+static const char *s_post_data = NULL;      // POST data
+static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
+
+// Print HTTP response and signal that we're done
+static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
+  if (ev == MG_EV_OPEN) {
+    // Connection created. Store connect expiration time in c->data
+    *(uint64_t *) c->data = mg_millis() + s_timeout_ms;
+  } else if (ev == MG_EV_POLL) {
+    if (mg_millis() > *(uint64_t *) c->data &&
+        (c->is_connecting || c->is_resolving)) {
+      mg_error(c, "Connect timeout");
+    }
+  } else if (ev == MG_EV_CONNECT) {
+    // Connected to server. Extract host name from URL
+    struct mg_str host = mg_url_host(s_url);
+
+    if (mg_url_is_ssl(s_url)) {
+      struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
+                                 .name = mg_url_host(s_url)};
+      mg_tls_init(c, &opts);
+    }
+
+    // Send request
+    int content_length = s_post_data ? strlen(s_post_data) : 0;
+    mg_printf(c,
+              "%s %s HTTP/1.0\r\n"
+              "Host: %.*s\r\n"
+              "Content-Type: octet-stream\r\n"
+              "Content-Length: %d\r\n"
+              "\r\n",
+              s_post_data ? "POST" : "GET", mg_url_uri(s_url), (int) host.len,
+              host.ptr, content_length);
+    mg_send(c, s_post_data, content_length);
+  } else if (ev == MG_EV_HTTP_MSG) {
+    // Response is received. Print it
+    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+    if (hm->message.len > 1) {
+        struct mg_str json = hm->body;
+        char *tz = mg_json_get_str(json, "$.timezone");
+        TZname = String(tz);
+        setTimeZone();
+        _LOG_A("Found Timezone Name=%s.\n", TZname.c_str());
+    } else {
+        _LOG_A("Timezone not found.\n");
+    }
+    c->is_draining = 1;        // Tell mongoose to close this connection
+    *(bool *) c->fn_data = true;  // Tell event loop to stop
+  } else if (ev == MG_EV_ERROR) {
+    *(bool *) c->fn_data = true;  // Error, tell event loop to stop
+  }
+}
 
 // SPIFFS is flat, so tell Mongoose that the FS root is a directory
 // This cludge is not required for filesystems with directory support
@@ -4424,12 +4513,14 @@ void timeSyncCallback(struct timeval *tv)
     _LOG_A("Synced clock to NTP server!");    // somehow adding a \n here hangs the device after printing this message ?!?
 }
 
-
 // Setup Wifi 
 void WiFiSetup(void) {
-    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
     //wifiManager.setDebugOutput(true);
     wifiManager.setMinimumSignalQuality(-1);
+    //WiFi.setAutoReconnect(true);
+    //WiFi.persistent(true);
+    WiFi.onEvent(onWifiEvent);
+    handleWIFImode();                                                           //go into the mode that was saved in nonvolatile memory
 
     // Start the mDNS responder so that the SmartEVSE can be accessed using a local hostame: http://SmartEVSE-xxxxxx.local
     if (!MDNS.begin(APhostname.c_str())) {                
@@ -4439,19 +4530,12 @@ void WiFiSetup(void) {
         MDNS.addService("http", "tcp", 80);   // announce Web server
     }
 
-    //WiFi.setAutoReconnect(true);
-    //WiFi.persistent(true);
-    WiFi.onEvent(onWifiEvent);
-
     // Init and get the time
     sntp_servermode_dhcp(1);                                                    //try to get the ntp server from dhcp
     sntp_setservername(1, "europe.pool.ntp.org");                               //fallback server
     sntp_set_time_sync_notification_cb(timeSyncCallback);
     sntp_init();
     //TODO
-    //String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
-    //setenv("TZ",TZ_INFO.c_str(),1);
-    //tzset();
 
     if (WIFImode == 1) {
 #if DBG == 1
@@ -4459,8 +4543,14 @@ void WiFiSetup(void) {
         Debug.begin(APhostname, 23, 1);
         Debug.showColors(true); // Colors
 #endif
-        StartwebServer();
+    StartwebServer();
+
+    if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
+        bool done = false;              // Event handler flips it to true
+        mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
     }
+    else
+        setTimeZone();
 }
 
 void SetupPortalTask(void * parameter) {
