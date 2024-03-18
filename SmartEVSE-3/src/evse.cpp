@@ -4453,12 +4453,14 @@ void WiFiSetup(void) {
     //setenv("TZ",TZ_INFO.c_str(),1);
     //tzset();
 
+    if (WIFImode == 1) {
 #if DBG == 1
-    // Initialize the server (telnet or web socket) of RemoteDebug
-    Debug.begin(APhostname, 23, 1);
-    Debug.showColors(true); // Colors
+        // Initialize the server (telnet or web socket) of RemoteDebug
+        Debug.begin(APhostname, 23, 1);
+        Debug.showColors(true); // Colors
 #endif
-    StartwebServer();
+        StartwebServer();
+    }
 }
 
 void SetupPortalTask(void * parameter) {
