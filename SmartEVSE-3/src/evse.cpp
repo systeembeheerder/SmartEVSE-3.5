@@ -4,7 +4,6 @@
 #include <Preferences.h>
 
 #include <FS.h>
-#include <SPIFFS.h>
 
 #include <WiFi.h>
 
@@ -4110,7 +4109,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         } else {
             if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
 
-              //find spiffs partition
+              //find spiffs partition //TODO how about unmounting this partition????
               static const esp_partition_t *spiffs_partition = NULL;
               esp_err_t ret;
               if (offset == 0)
@@ -4390,65 +4389,10 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 }
 
 void StartwebServer(void) {
-    //mongoose
-    // Mount filesystem
-    esp_vfs_spiffs_conf_t conf = {
-      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = false};
-    int res = esp_vfs_spiffs_register(&conf);
-    MG_INFO(("FS at %s initialised, status: %d", conf.base_path, res));
-
-      if (res != ESP_OK) {
-        if (res == ESP_FAIL) {
-            MG_INFO(("Failed to mount or format filesystem"));
-        } else if (res == ESP_ERR_NOT_FOUND) {
-            MG_INFO(("Failed to find SPIFFS partition"));
-        } else {
-            MG_INFO(("Failed to initialize SPIFFS (%s)", esp_err_to_name(res)));
-        }
-        //return;
-    }
-
-    res = esp_spiffs_mounted("spiffs");
-    MG_INFO(("FS is mounted: %d.\n", res));
-
-//#ifdef CONFIG_EXAMPLE_SPIFFS_CHECK_ON_START
-    MG_INFO(("Performing SPIFFS_check()."));
-    int ret = esp_spiffs_check(conf.partition_label);
-    if (ret != ESP_OK) {
-        MG_INFO(("SPIFFS_check() failed (%s)", esp_err_to_name(ret)));
-        //return;
-    } else {
-        MG_INFO(("SPIFFS_check() successful"));
-    }
-//#endif
-/*
-    size_t total = 0, used = 0;
-    ret = esp_spiffs_info(conf.partition_label, &total, &used);
-    if (ret != ESP_OK) {
-        MG_INFO(("Failed to get SPIFFS partition information (%s). Formatting...", esp_err_to_name(ret)));
-        esp_spiffs_format(conf.partition_label);
-        //return;
-    } else {
-        MG_INFO(("Partition size: total: %d, used: %d", total, used));
-    }
-
-
-#define INDEX "/spiffs/index.html"
-    FILE* f = fopen(INDEX, "w+");
-    if (f == NULL) {
-        MG_INFO(("Failed to open file for writing\n"));
-        //return;
-    }
-    fprintf(f,R"(<!DOCTYPE html> <html> <head> <title>Example</title> </head> <body> <p>DINGO3 test.</p> </body> </html>)");
-    fclose(f);
-*/
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
     mg_log_set(MG_LL_DEBUG);
-
-    //end mongoose
     _LOG_A("HTTP server started\n");
-
 }
 
 void onWifiEvent(WiFiEvent_t event) {
@@ -4703,15 +4647,56 @@ void setup() {
         _LOG_A("not programmed!!!\n");
     }
     
-    // Initialize SPIFFS
-    if (!SPIFFS.begin(true)) {
-        _LOG_A("SPIFFS failed! Already tried formatting. HALT\n");
-        while (true) {
-          delay(1);
+    // Mount filesystem; mongoose needs mounted /spiffs partition, so SPIFFS.begin won't cut it
+    esp_vfs_spiffs_conf_t conf = {
+      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = false};
+    int res = esp_vfs_spiffs_register(&conf);
+    _LOG_A("FS at %s initialised, status: %d", conf.base_path, res);
+
+      if (res != ESP_OK) {
+        if (res == ESP_FAIL) {
+            _LOG_A("Failed to mount or format filesystem");
+        } else if (res == ESP_ERR_NOT_FOUND) {
+            _LOG_A("Failed to find SPIFFS partition");
+        } else {
+            _LOG_A("Failed to initialize SPIFFS (%s)", esp_err_to_name(res));
         }
     }
-    _LOG_A("Total SPIFFS bytes: %u, Bytes used: %u\n",SPIFFS.totalBytes(),SPIFFS.usedBytes());
 
+    res = esp_spiffs_mounted("spiffs");
+    _LOG_A("FS is mounted: %d.\n", res);
+
+//#ifdef CONFIG_EXAMPLE_SPIFFS_CHECK_ON_START
+    _LOG_A("Performing SPIFFS_check().");
+    int ret = esp_spiffs_check(conf.partition_label);
+    if (ret != ESP_OK) {
+        _LOG_A("SPIFFS_check() failed (%s)", esp_err_to_name(ret));
+    } else {
+        _LOG_A("SPIFFS_check() successful");
+    }
+//#endif
+
+/*
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(conf.partition_label, &total, &used);
+    if (ret != ESP_OK) {
+        MG_INFO(("Failed to get SPIFFS partition information (%s). Formatting...", esp_err_to_name(ret)));
+        esp_spiffs_format(conf.partition_label);
+        //return;
+    } else {
+        MG_INFO(("Partition size: total: %d, used: %d", total, used));
+    }
+
+
+#define INDEX "/spiffs/index.html"
+    FILE* f = fopen(INDEX, "w+");
+    if (f == NULL) {
+        MG_INFO(("Failed to open file for writing\n"));
+        //return;
+    }
+    fprintf(f,R"(<!DOCTYPE html> <html> <head> <title>Example</title> </head> <body> <p>DINGO3 test.</p> </body> </html>)");
+    fclose(f);
+*/
     // We might need some sort of authentication in the future.
     // SmartEVSE v3 have programmed ECDSA-256 keys stored in nvs
     // Unused for now.
