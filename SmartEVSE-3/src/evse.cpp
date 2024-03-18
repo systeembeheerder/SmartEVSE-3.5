@@ -3761,6 +3761,35 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
     return 1;
 }
 
+// takes TZname (format: Europe/Berlin) , gets TZ_INFO (posix string, format: CET-1CEST,M3.5.0,M10.5.0/3) and sets timezone accordingly
+void setTimeZone(void) {
+
+    //lookup posix string
+    FILE *fd = fopen ("/spiffs/zones.csv", "r");
+    if (fd == NULL) perror ("Error opening file /spiffs/zones.csv");
+    else {
+        bool found = false;
+        char line[70];
+        char tzname[30];
+        TZname.toCharArray(tzname, sizeof(tzname));
+        while (fgets(line, sizeof(line), fd)) {
+            found = strstr(line, tzname);
+            if (found) {
+                char *pos = strstr(line, ",");
+                pos = strstr(pos, "\"");
+                char *tz_info = pos + 1;
+                pos = strstr(pos, "\"") - 1;
+                pos = NULL; //end string with null char
+                _LOG_A("Detected Timezone info: TZname = %s, tz_info=%s.\n", tzname, tz_info);
+                setenv("TZ",tz_info,1);
+                tzset();
+                break;
+            }
+        }
+        fclose(fd);
+   }
+}
+
 // wrapper so hasParam and getParam still work
 class webServerRequest {
 private:
@@ -3847,6 +3876,7 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
         struct mg_str json = hm->body;
         char *tz = mg_json_get_str(json, "$.timezone");
         TZname = String(tz);
+        setTimeZone();
         _LOG_A("DINGO JSON result=%s.\n", TZname.c_str());
     } else {
         _LOG_A("DINGO: empty zonelist\n");
@@ -4542,7 +4572,6 @@ void timeSyncCallback(struct timeval *tv)
     _LOG_A("Synced clock to NTP server!");    // somehow adding a \n here hangs the device after printing this message ?!?
 }
 
-
 // Setup Wifi 
 void WiFiSetup(void) {
     //wifiManager.setDebugOutput(true);
@@ -4573,20 +4602,13 @@ void WiFiSetup(void) {
     Debug.showColors(true); // Colors
 #endif
     StartwebServer();
-    //delay(3000);
-    String TZ_INFO=""; //TODO DEBUG!
-    if (!TZ_INFO || TZ_INFO == "") {                                                             //TZ_INFO string unknown
+
+    if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
         bool done = false;              // Event handler flips it to true
         mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
     }
-
-
-    //wget https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv
-
-    //String TZ_INFO = ESPAsync_wifiManager.getTZ(TZname.c_str());
-    //setenv("TZ",TZ_INFO.c_str(),1);
-    //tzset();
-
+    else
+        setTimeZone();
 }
 
 void SetupPortalTask(void * parameter) {
@@ -5031,7 +5053,6 @@ String handlesettings(void) {
 void loop() {
     //this loop is for non-time critical stuff that needs to run approx 1 / second
     delay(1000);
-    _LOG_A("DINGO: TZname = %s.\n", TZname.c_str());
     getLocalTime(&timeinfo, 1000U);
     if (!LocalTimeSet) {
         _LOG_A("Time not synced with NTP yet.\n");
