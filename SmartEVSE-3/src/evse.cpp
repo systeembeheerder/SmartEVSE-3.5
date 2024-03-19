@@ -146,7 +146,7 @@ uint8_t Show_RFID = 0;
 uint8_t WIFImode = WIFI_MODE;                                               // WiFi Mode (0:Disabled / 1:Enabled / 2:Start Portal)
 String APpassword = "00000000";
 uint8_t Initialized = INITIALIZED;                                          // When first powered on, the settings need to be initialized.
-String TZname = "";
+String TZinfo = "";
 
 EnableC2_t EnableC2 = ENABLE_C2;                                            // Contactor C2
 Modem_t Modem = NOTPRESENT;                                                 // Is an ISO15118 modem installed (experimental)
@@ -3606,7 +3606,7 @@ void read_settings() {
         APpassword = preferences.getString("APpassword",AP_PASSWORD);
         DelayedStartTime.epoch2 = preferences.getULong("DelayedStartTim", DELAYEDSTARTTIME); //epoch2 is 4 bytes long on arduino; NVS key has reached max size
         DelayedStopTime.epoch2 = preferences.getULong("DelayedStopTime", DELAYEDSTOPTIME);    //epoch2 is 4 bytes long on arduino
-        TZname = preferences.getString("Timezone","");
+        TZinfo = preferences.getString("TZinfo","");                            //default of CEST is handled elsewhere
 
         EnableC2 = (EnableC2_t) preferences.getUShort("EnableC2", ENABLE_C2);
 #if MODEM
@@ -3761,7 +3761,7 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
 }
 
 // takes TZname (format: Europe/Berlin) , gets TZ_INFO (posix string, format: CET-1CEST,M3.5.0,M10.5.0/3) and sets timezone accordingly
-void setTimeZone(void) {
+void setTimeZone(char *tzname) {
 
     //lookup posix string
     FILE *fd = fopen ("/spiffs/zones.csv", "r");
@@ -3769,8 +3769,6 @@ void setTimeZone(void) {
     else {
         bool found = false;
         char line[70];
-        char tzname[30];
-        TZname.toCharArray(tzname, sizeof(tzname));
         while (fgets(line, sizeof(line), fd)) {
             found = strstr(line, tzname);
             if (found) {
@@ -3782,6 +3780,12 @@ void setTimeZone(void) {
                 _LOG_A("Detected Timezone info: TZname = %s, tz_info=%s.\n", tzname, tz_info);
                 setenv("TZ",tz_info,1);
                 tzset();
+                if (preferences.begin("settings", false) ) {
+                    preferences.putString("TZinfo",String(tz_info));
+                    //if (preferences.isKey == "Timezone")                          //TZname no longer used, TZinfo is stored
+                    //    preferences.remove("Timezone");
+                    preferences.end();
+                }
                 break;
             }
         }
@@ -3871,11 +3875,13 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
     if (hm->message.len > 1) {
         struct mg_str json = hm->body;
         char *tz = mg_json_get_str(json, "$.timezone");
-        TZname = String(tz);
-        setTimeZone();
-        _LOG_A("Found Timezone Name=%s.\n", TZname.c_str());
+        setTimeZone(tz);
+        _LOG_A("Found Timezone Name=%s.\n", tz);
     } else {
         _LOG_A("Timezone not found.\n");
+        setenv("TZ","CET-1CEST,M3.5.0,M10.5.0/3",1);                            // default to CEST
+        tzset();
+
     }
     c->is_draining = 1;        // Tell mongoose to close this connection
     *(bool *) c->fn_data = true;  // Tell event loop to stop
@@ -4543,14 +4549,14 @@ void WiFiSetup(void) {
         Debug.begin(APhostname, 23, 1);
         Debug.showColors(true); // Colors
 #endif
-    StartwebServer();
-
-    if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
-        bool done = false;              // Event handler flips it to true
-        mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
+        StartwebServer();
     }
-    else
-        setTimeZone();
+
+    if (TZinfo == "") {
+        vTaskDelay(3000 / portTICK_PERIOD_MS);                                  // delay 3s or the connection will not be made
+        bool done = false;                                                      // Event handler flips it to true
+        mg_http_connect(&mgr, s_url, fn_client, &done);                         // Create client connection
+    }
 }
 
 void SetupPortalTask(void * parameter) {
@@ -4570,15 +4576,6 @@ void SetupPortalTask(void * parameter) {
     wifiManager.startConfigPortal(APhostname.c_str(), APpassword.c_str());
     //_LOG_A("SetupPortalTask free ram: %u\n", uxTaskGetStackHighWaterMark( NULL ));
     WiFi.disconnect(true);
-
-    // this function only works in portal mode, so we have to save the timezone:
-    // TODO
-    /*
-    TZname = ESPAsync_wifiManager.getTimezoneName();
-    if (preferences.begin("settings", false) ) {
-        preferences.putString("Timezone",TZname);
-        preferences.end();
-    }*/
 
     WIFImode = 1;
     handleWIFImode();
