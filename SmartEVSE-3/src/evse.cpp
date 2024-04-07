@@ -3715,25 +3715,6 @@ void write_settings(void) {
     ConfigChanged = 1;
 }
 
-//
-// Replaces %variables% in html file with local variables
-//
-String processor(const String& var){
-  
-    if (var == "APhostname") return APhostname;
-    if (var == "TempEVSE") return String(TempEVSE);
-    if (var == "StateEVSE") return StrStateNameWeb[State];
-    if (var == "ErrorEVSE") return getErrorNameWeb(ErrorFlags);
-    if (var == "ChargeCurrent") return String((float)Balanced[0]/10, 1U);
-    if (var == "ResetReason") return String(esp_reset_reason() );
-    if (var == "IrmsL1") return String((float)Irms[0]/10, 1U);
-    if (var == "IrmsL2") return String((float)Irms[1]/10, 1U);
-    if (var == "IrmsL3") return String((float)Irms[2]/10, 1U);
-
-    return String("");
-}
-
-
 void StopwebServer(void) {
     mg_mgr_free(&mgr);
 }
@@ -3947,6 +3928,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 
         DynamicJsonDocument doc(1600); // https://arduinojson.org/v6/assistant/
         doc["version"] = String(VERSION);
+        doc["serialnr"] = serialnr;
         doc["mode"] = mode;
         doc["mode_id"] = modeId;
         doc["car_connected"] = evConnected;
