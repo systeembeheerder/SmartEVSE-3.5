@@ -54,7 +54,6 @@ struct tm timeinfo;
 #include "esp_spiffs.h"
 #include "esp_log.h"
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
-extern String handlesettings(void);
 // end of mongoose stuff
 #include "esp_ota_ops.h"
 
@@ -3915,9 +3914,154 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         }
         ESP.restart();
     } else if (mg_http_match_uri(hm, "/settings")) {                            // REST API call?
-      if (!memcmp("GET", hm->method.ptr, hm->method.len))                       // if GET
-        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", handlesettings().c_str());    // Yes. Respond JSON
-      else if (!memcmp("POST", hm->method.ptr, hm->method.len)) {                     // if POST
+      if (!memcmp("GET", hm->method.ptr, hm->method.len)) {                     // if GET
+        String mode = "N/A";
+        int modeId = -1;
+        if(Access_bit == 0)  {
+            mode = "OFF";
+            modeId=0;
+        } else {
+            switch(Mode) {
+                case MODE_NORMAL: mode = "NORMAL"; modeId=1; break;
+                case MODE_SOLAR: mode = "SOLAR"; modeId=2; break;
+                case MODE_SMART: mode = "SMART"; modeId=3; break;
+            }
+        }
+        String backlight = "N/A";
+        switch(BacklightSet) {
+            case 0: backlight = "OFF"; break;
+            case 1: backlight = "ON"; break;
+            case 2: backlight = "DIMMED"; break;
+        }
+        String evstate = StrStateNameWeb[State];
+        String error = getErrorNameWeb(ErrorFlags);
+        int errorId = getErrorId(ErrorFlags);
+
+        if (ErrorFlags & NO_SUN) {
+            evstate += " - " + error;
+            error = "None";
+            errorId = 0;
+        }
+
+        boolean evConnected = pilot != PILOT_12V;                    //when access bit = 1, p.ex. in OFF mode, the STATEs are no longer updated
+
+        DynamicJsonDocument doc(1600); // https://arduinojson.org/v6/assistant/
+        doc["version"] = String(VERSION);
+        doc["mode"] = mode;
+        doc["mode_id"] = modeId;
+        doc["car_connected"] = evConnected;
+
+        if(WiFi.isConnected()) {
+            switch(WiFi.status()) {
+                case WL_NO_SHIELD:          doc["wifi"]["status"] = "WL_NO_SHIELD"; break;
+                case WL_IDLE_STATUS:        doc["wifi"]["status"] = "WL_IDLE_STATUS"; break;
+                case WL_NO_SSID_AVAIL:      doc["wifi"]["status"] = "WL_NO_SSID_AVAIL"; break;
+                case WL_SCAN_COMPLETED:     doc["wifi"]["status"] = "WL_SCAN_COMPLETED"; break;
+                case WL_CONNECTED:          doc["wifi"]["status"] = "WL_CONNECTED"; break;
+                case WL_CONNECT_FAILED:     doc["wifi"]["status"] = "WL_CONNECT_FAILED"; break;
+                case WL_CONNECTION_LOST:    doc["wifi"]["status"] = "WL_CONNECTION_LOST"; break;
+                case WL_DISCONNECTED:       doc["wifi"]["status"] = "WL_DISCONNECTED"; break;
+                default:                    doc["wifi"]["status"] = "UNKNOWN"; break;
+            }
+
+            doc["wifi"]["ssid"] = WiFi.SSID();    
+            doc["wifi"]["rssi"] = WiFi.RSSI();    
+            doc["wifi"]["bssid"] = WiFi.BSSIDstr();  
+        }
+        
+        doc["evse"]["temp"] = TempEVSE;
+        doc["evse"]["temp_max"] = maxTemp;
+        doc["evse"]["connected"] = evConnected;
+        doc["evse"]["access"] = Access_bit == 1;
+        doc["evse"]["mode"] = Mode;
+        doc["evse"]["loadbl"] = LoadBl;
+        doc["evse"]["pwm"] = CurrentPWM;
+        doc["evse"]["solar_stop_timer"] = SolarStopTimer;
+        doc["evse"]["state"] = evstate;
+        doc["evse"]["state_id"] = State;
+        doc["evse"]["error"] = error;
+        doc["evse"]["error_id"] = errorId;
+        doc["evse"]["rfid"] = !RFIDReader ? "Not Installed" : RFIDstatus >= 8 ? "NOSTATUS" : StrRFIDStatusWeb[RFIDstatus];
+
+        doc["settings"]["charge_current"] = Balanced[0];
+        doc["settings"]["override_current"] = OverrideCurrent;
+        doc["settings"]["current_min"] = MinCurrent;
+        doc["settings"]["current_max"] = MaxCurrent;
+        doc["settings"]["current_main"] = MaxMains;
+        doc["settings"]["current_max_circuit"] = MaxCircuit;
+        doc["settings"]["current_max_sum_mains"] = MaxSumMains;
+        doc["settings"]["solar_max_import"] = ImportCurrent;
+        doc["settings"]["solar_start_current"] = StartCurrent;
+        doc["settings"]["solar_stop_time"] = StopTime;
+        doc["settings"]["enable_C2"] = StrEnableC2[EnableC2];
+        doc["settings"]["modem"] = StrModem[Modem];
+        doc["settings"]["mains_meter"] = EMConfig[MainsMeter].Desc;
+        doc["settings"]["starttime"] = (DelayedStartTime.epoch2 ? DelayedStartTime.epoch2 + EPOCH2_OFFSET : 0);
+        doc["settings"]["stoptime"] = (DelayedStopTime.epoch2 ? DelayedStopTime.epoch2 + EPOCH2_OFFSET : 0);
+        doc["settings"]["repeat"] = DelayedRepeat;
+#if MODEM
+        if (Modem) {
+            doc["settings"]["required_evccid"] = RequiredEVCCID;
+            doc["ev_state"]["initial_soc"] = InitialSoC;
+            doc["ev_state"]["remaining_soc"] = RemainingSoC;
+            doc["ev_state"]["full_soc"] = FullSoC;
+            doc["ev_state"]["energy_capacity"] = EnergyCapacity > 0 ? round((float)EnergyCapacity / 100)/10 : -1; //in kWh, precision 1 decimal;
+            doc["ev_state"]["energy_request"] = EnergyRequest > 0 ? round((float)EnergyRequest / 100)/10 : -1; //in kWh, precision 1 decimal
+            doc["ev_state"]["computed_soc"] = ComputedSoC;
+            doc["ev_state"]["evccid"] = EVCCID;
+            doc["ev_state"]["time_until_full"] = TimeUntilFull;
+        }
+#endif
+
+#if MQTT
+        doc["mqtt"]["host"] = MQTTHost;
+        doc["mqtt"]["port"] = MQTTPort;
+        doc["mqtt"]["topic_prefix"] = MQTTprefix;
+        doc["mqtt"]["username"] = MQTTuser;
+        doc["mqtt"]["password_set"] = MQTTpassword != "";
+
+        if (MQTTclient.connected()) {
+            doc["mqtt"]["status"] = "Connected";
+        } else {
+            doc["mqtt"]["status"] = "Disconnected";
+        }
+#endif
+
+        doc["home_battery"]["current"] = homeBatteryCurrent;
+        doc["home_battery"]["last_update"] = homeBatteryLastUpdate;
+
+        doc["ev_meter"]["description"] = EMConfig[EVMeter].Desc;
+        doc["ev_meter"]["address"] = EVMeterAddress;
+        doc["ev_meter"]["import_active_power"] = round((float)PowerMeasured / 100)/10; //in kW, precision 1 decimal
+        doc["ev_meter"]["total_kwh"] = round((float)EnergyEV / 100)/10; //in kWh, precision 1 decimal
+        doc["ev_meter"]["charged_kwh"] = round((float)EnergyCharged / 100)/10; //in kWh, precision 1 decimal
+        doc["ev_meter"]["currents"]["TOTAL"] = Irms_EV[0] + Irms_EV[1] + Irms_EV[2];
+        doc["ev_meter"]["currents"]["L1"] = Irms_EV[0];
+        doc["ev_meter"]["currents"]["L2"] = Irms_EV[1];
+        doc["ev_meter"]["currents"]["L3"] = Irms_EV[2];
+        doc["ev_meter"]["import_active_energy"] = round((float)EV_import_active_energy / 100)/10; //in kWh, precision 1 decimal
+        doc["ev_meter"]["export_active_energy"] = round((float)EV_export_active_energy / 100)/10; //in kWh, precision 1 decimal
+
+        doc["mains_meter"]["import_active_energy"] = round((float)Mains_import_active_energy / 100)/10; //in kWh, precision 1 decimal
+        doc["mains_meter"]["export_active_energy"] = round((float)Mains_export_active_energy / 100)/10; //in kWh, precision 1 decimal
+
+        doc["phase_currents"]["TOTAL"] = Irms[0] + Irms[1] + Irms[2];
+        doc["phase_currents"]["L1"] = Irms[0];
+        doc["phase_currents"]["L2"] = Irms[1];
+        doc["phase_currents"]["L3"] = Irms[2];
+        doc["phase_currents"]["last_data_update"] = phasesLastUpdate;
+        doc["phase_currents"]["original_data"]["TOTAL"] = IrmsOriginal[0] + IrmsOriginal[1] + IrmsOriginal[2];
+        doc["phase_currents"]["original_data"]["L1"] = IrmsOriginal[0];
+        doc["phase_currents"]["original_data"]["L2"] = IrmsOriginal[1];
+        doc["phase_currents"]["original_data"]["L3"] = IrmsOriginal[2];
+        
+        doc["backlight"]["timer"] = BacklightTimer;
+        doc["backlight"]["status"] = backlight;
+
+        String json;
+        serializeJson(doc, json);
+        mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", json.c_str());    // Yes. Respond JSON
+      } else if (!memcmp("POST", hm->method.ptr, hm->method.len)) {                     // if POST
         DynamicJsonDocument doc(512); // https://arduinojson.org/v6/assistant/
 
         if(request->hasParam("backlight")) {
@@ -4899,157 +5043,6 @@ void setup() {
 }
 
 ////mongoose playground
-String handlesettings(void) {
-        String mode = "N/A";
-        int modeId = -1;
-        if(Access_bit == 0)  {
-            mode = "OFF";
-            modeId=0;
-        } else {
-            switch(Mode) {
-                case MODE_NORMAL: mode = "NORMAL"; modeId=1; break;
-                case MODE_SOLAR: mode = "SOLAR"; modeId=2; break;
-                case MODE_SMART: mode = "SMART"; modeId=3; break;
-            }
-        }
-        String backlight = "N/A";
-        switch(BacklightSet) {
-            case 0: backlight = "OFF"; break;
-            case 1: backlight = "ON"; break;
-            case 2: backlight = "DIMMED"; break;
-        }
-        String evstate = StrStateNameWeb[State];
-        String error = getErrorNameWeb(ErrorFlags);
-        int errorId = getErrorId(ErrorFlags);
-
-        if (ErrorFlags & NO_SUN) {
-            evstate += " - " + error;
-            error = "None";
-            errorId = 0;
-        }
-
-        boolean evConnected = pilot != PILOT_12V;                    //when access bit = 1, p.ex. in OFF mode, the STATEs are no longer updated
-
-        DynamicJsonDocument doc(1600); // https://arduinojson.org/v6/assistant/
-        doc["version"] = String(VERSION);
-        doc["mode"] = mode;
-        doc["mode_id"] = modeId;
-        doc["car_connected"] = evConnected;
-
-        if(WiFi.isConnected()) {
-            switch(WiFi.status()) {
-                case WL_NO_SHIELD:          doc["wifi"]["status"] = "WL_NO_SHIELD"; break;
-                case WL_IDLE_STATUS:        doc["wifi"]["status"] = "WL_IDLE_STATUS"; break;
-                case WL_NO_SSID_AVAIL:      doc["wifi"]["status"] = "WL_NO_SSID_AVAIL"; break;
-                case WL_SCAN_COMPLETED:     doc["wifi"]["status"] = "WL_SCAN_COMPLETED"; break;
-                case WL_CONNECTED:          doc["wifi"]["status"] = "WL_CONNECTED"; break;
-                case WL_CONNECT_FAILED:     doc["wifi"]["status"] = "WL_CONNECT_FAILED"; break;
-                case WL_CONNECTION_LOST:    doc["wifi"]["status"] = "WL_CONNECTION_LOST"; break;
-                case WL_DISCONNECTED:       doc["wifi"]["status"] = "WL_DISCONNECTED"; break;
-                default:                    doc["wifi"]["status"] = "UNKNOWN"; break;
-            }
-
-            doc["wifi"]["ssid"] = WiFi.SSID();    
-            doc["wifi"]["rssi"] = WiFi.RSSI();    
-            doc["wifi"]["bssid"] = WiFi.BSSIDstr();  
-        }
-        
-        doc["evse"]["temp"] = TempEVSE;
-        doc["evse"]["temp_max"] = maxTemp;
-        doc["evse"]["connected"] = evConnected;
-        doc["evse"]["access"] = Access_bit == 1;
-        doc["evse"]["mode"] = Mode;
-        doc["evse"]["loadbl"] = LoadBl;
-        doc["evse"]["pwm"] = CurrentPWM;
-        doc["evse"]["solar_stop_timer"] = SolarStopTimer;
-        doc["evse"]["state"] = evstate;
-        doc["evse"]["state_id"] = State;
-        doc["evse"]["error"] = error;
-        doc["evse"]["error_id"] = errorId;
-        doc["evse"]["rfid"] = !RFIDReader ? "Not Installed" : RFIDstatus >= 8 ? "NOSTATUS" : StrRFIDStatusWeb[RFIDstatus];
-
-        doc["settings"]["charge_current"] = Balanced[0];
-        doc["settings"]["override_current"] = OverrideCurrent;
-        doc["settings"]["current_min"] = MinCurrent;
-        doc["settings"]["current_max"] = MaxCurrent;
-        doc["settings"]["current_main"] = MaxMains;
-        doc["settings"]["current_max_circuit"] = MaxCircuit;
-        doc["settings"]["current_max_sum_mains"] = MaxSumMains;
-        doc["settings"]["solar_max_import"] = ImportCurrent;
-        doc["settings"]["solar_start_current"] = StartCurrent;
-        doc["settings"]["solar_stop_time"] = StopTime;
-        doc["settings"]["enable_C2"] = StrEnableC2[EnableC2];
-        doc["settings"]["modem"] = StrModem[Modem];
-        doc["settings"]["mains_meter"] = EMConfig[MainsMeter].Desc;
-        doc["settings"]["starttime"] = (DelayedStartTime.epoch2 ? DelayedStartTime.epoch2 + EPOCH2_OFFSET : 0);
-        doc["settings"]["stoptime"] = (DelayedStopTime.epoch2 ? DelayedStopTime.epoch2 + EPOCH2_OFFSET : 0);
-        doc["settings"]["repeat"] = DelayedRepeat;
-#if MODEM
-        if (Modem) {
-            doc["settings"]["required_evccid"] = RequiredEVCCID;
-            doc["ev_state"]["initial_soc"] = InitialSoC;
-            doc["ev_state"]["remaining_soc"] = RemainingSoC;
-            doc["ev_state"]["full_soc"] = FullSoC;
-            doc["ev_state"]["energy_capacity"] = EnergyCapacity > 0 ? round((float)EnergyCapacity / 100)/10 : -1; //in kWh, precision 1 decimal;
-            doc["ev_state"]["energy_request"] = EnergyRequest > 0 ? round((float)EnergyRequest / 100)/10 : -1; //in kWh, precision 1 decimal
-            doc["ev_state"]["computed_soc"] = ComputedSoC;
-            doc["ev_state"]["evccid"] = EVCCID;
-            doc["ev_state"]["time_until_full"] = TimeUntilFull;
-        }
-#endif
-
-#if MQTT
-        doc["mqtt"]["host"] = MQTTHost;
-        doc["mqtt"]["port"] = MQTTPort;
-        doc["mqtt"]["topic_prefix"] = MQTTprefix;
-        doc["mqtt"]["username"] = MQTTuser;
-        doc["mqtt"]["password_set"] = MQTTpassword != "";
-
-        if (MQTTclient.connected()) {
-            doc["mqtt"]["status"] = "Connected";
-        } else {
-            doc["mqtt"]["status"] = "Disconnected";
-        }
-#endif
-
-        doc["home_battery"]["current"] = homeBatteryCurrent;
-        doc["home_battery"]["last_update"] = homeBatteryLastUpdate;
-
-        doc["ev_meter"]["description"] = EMConfig[EVMeter].Desc;
-        doc["ev_meter"]["address"] = EVMeterAddress;
-        doc["ev_meter"]["import_active_power"] = round((float)PowerMeasured / 100)/10; //in kW, precision 1 decimal
-        doc["ev_meter"]["total_kwh"] = round((float)EnergyEV / 100)/10; //in kWh, precision 1 decimal
-        doc["ev_meter"]["charged_kwh"] = round((float)EnergyCharged / 100)/10; //in kWh, precision 1 decimal
-        doc["ev_meter"]["currents"]["TOTAL"] = Irms_EV[0] + Irms_EV[1] + Irms_EV[2];
-        doc["ev_meter"]["currents"]["L1"] = Irms_EV[0];
-        doc["ev_meter"]["currents"]["L2"] = Irms_EV[1];
-        doc["ev_meter"]["currents"]["L3"] = Irms_EV[2];
-        doc["ev_meter"]["import_active_energy"] = round((float)EV_import_active_energy / 100)/10; //in kWh, precision 1 decimal
-        doc["ev_meter"]["export_active_energy"] = round((float)EV_export_active_energy / 100)/10; //in kWh, precision 1 decimal
-
-        doc["mains_meter"]["import_active_energy"] = round((float)Mains_import_active_energy / 100)/10; //in kWh, precision 1 decimal
-        doc["mains_meter"]["export_active_energy"] = round((float)Mains_export_active_energy / 100)/10; //in kWh, precision 1 decimal
-
-        doc["phase_currents"]["TOTAL"] = Irms[0] + Irms[1] + Irms[2];
-        doc["phase_currents"]["L1"] = Irms[0];
-        doc["phase_currents"]["L2"] = Irms[1];
-        doc["phase_currents"]["L3"] = Irms[2];
-        doc["phase_currents"]["last_data_update"] = phasesLastUpdate;
-        doc["phase_currents"]["original_data"]["TOTAL"] = IrmsOriginal[0] + IrmsOriginal[1] + IrmsOriginal[2];
-        doc["phase_currents"]["original_data"]["L1"] = IrmsOriginal[0];
-        doc["phase_currents"]["original_data"]["L2"] = IrmsOriginal[1];
-        doc["phase_currents"]["original_data"]["L3"] = IrmsOriginal[2];
-        
-        doc["backlight"]["timer"] = BacklightTimer;
-        doc["backlight"]["status"] = backlight;
-
-        String json;
-        serializeJson(doc, json);
-        return json;
-    };
-
-////end of mongoose playground
-
 void loop() {
     //this loop is for non-time critical stuff that needs to run approx 1 / second
     delay(1000);
