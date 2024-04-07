@@ -3894,6 +3894,117 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
           preferences.end();
         }
         ESP.restart();
+    } else if (mg_http_match_uri(hm, "/update")) {
+        //modified version of mg_http_upload
+        char buf[20] = "0", file[40], path[MG_PATH_MAX];
+        size_t max_size = 1500000;
+        long res = 0, offset, size;
+        mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
+        mg_http_get_var(&hm->query, "file", file, sizeof(file));
+        offset = strtol(buf, NULL, 0);
+        buf[0] = '0';
+        mg_http_get_var(&hm->query, "size", buf, sizeof(buf));
+        size = strtol(buf, NULL, 0);
+        mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
+        if (hm->body.len == 0) {
+          mg_http_reply(c, 200, "", "nothing to write");  // Nothing to write
+        } else if (file[0] == '\0') {
+          mg_http_reply(c, 400, "", "file required");
+          res = -1;
+        } else if (mg_path_is_sane(file) == false) {
+          mg_http_reply(c, 400, "", "%s: invalid file", file);
+          res = -2;
+        } else if (offset < 0) {
+          mg_http_reply(c, 400, "", "offset required");
+          res = -3;
+        } else if ((size_t) offset + hm->body.len > max_size) {
+          mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
+                        (unsigned long) max_size);
+          res = -4;
+        } else if (size <= 0) {
+          mg_http_reply(c, 400, "", "size required");
+          res = -5;
+        } else {
+            if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
+
+              //find spiffs partition
+              static const esp_partition_t *spiffs_partition = NULL;
+              esp_err_t ret;
+              if (offset == 0)
+                spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+              if (spiffs_partition != NULL) {
+                  // You have found the SPIFFS partition
+                  if (offset == 0) {
+                      ret = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
+                      if (ret != ESP_OK)
+                        _LOG_A("ERROR: could not erase partition.\n");
+                      _LOG_A("SPIFFS Begin\n");
+                  }
+                  res = offset + hm->body.len;
+                  ret = esp_partition_write(spiffs_partition, offset, hm->body.ptr, hm->body.len);
+                  if (ret != ESP_OK)
+                    _LOG_A("ERROR: could not write to partition.\n");
+                  // is reboot really necessary after updating spiffs partition?
+                  // mongoose reads new files fine after refresh
+/*                  if (res >= size) {                                 // EOF
+                    ESP.restart();
+                  }*/
+              }
+            } //end of spiffs.bin
+            if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
+                static esp_ota_handle_t update_handle = 0 ;
+                static const esp_partition_t *update_partition = NULL;
+                esp_err_t err;
+                if (offset == 0) {
+                    update_partition = esp_ota_get_next_update_partition(NULL);
+                    assert(update_partition != NULL);
+                    _LOG_A("Current boot parition %s.\n", esp_ota_get_boot_partition()->label);
+                    _LOG_A("Currently running off parition %s.\n", esp_ota_get_running_partition()->label);
+                    _LOG_A("Writing to partition subtype %d at offset 0x%" PRIx32, update_partition->subtype, update_partition->address);
+                    _LOG_A("Writing to partition %s.\n", update_partition->label);
+                    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+                    //err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
+                    if (err != ESP_OK)
+                        _LOG_A("ERROR: esp_ota_begin failed (%s)\n", esp_err_to_name(err));
+                        //esp_ota_abort(update_handle);
+                }
+                res = offset + hm->body.len;
+                err = esp_ota_write_with_offset( update_handle, (const void *)hm->body.ptr, hm->body.len, offset);
+                if (err != ESP_OK) {
+                    _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
+                    //no esp_ota_abort here?
+                }
+                if (offset >= size) {                                           //EOF
+                    _LOG_A("Total Write binary data length: %lu\n", res);
+                    err = esp_ota_end(update_handle);
+                    if (err != ESP_OK) {
+                        if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
+                            _LOG_A("Image validation failed, image is corrupted\n");
+                        } else {
+                            _LOG_A("esp_ota_end failed (%s)!\n", esp_err_to_name(err));
+                        }
+                        const esp_partition_t *ver_part = esp_partition_verify(update_partition);
+                        if (ver_part == NULL) {
+                            _LOG_A("Verified partition %s FAIL", update_partition->label);
+                        } else {
+                            _LOG_A("Verified partition %s SUCCESS", ver_part->label);
+                        }
+                    } else {
+                        err = esp_ota_set_boot_partition(update_partition);
+                        if (err != ESP_OK) {
+                            _LOG_A("esp_ota_set_boot_partition failed (%s)!\n", esp_err_to_name(err));
+                        }
+                        else {
+                            _LOG_A("Set boot partition to %s.\n", update_partition->label);
+                        }
+                        _LOG_A("Prepare to restart system!\n");
+                    }
+                    delay(1000);
+                    esp_restart();
+                }
+            }//end of firmware.bin
+          mg_http_reply(c, 200, "", "%ld", res);
+        }
     } else if (mg_http_match_uri(hm, "/settings")) {                            // REST API call?
       if (!memcmp("GET", hm->method.ptr, hm->method.len)) {                     // if GET
         String mode = "N/A";
@@ -4295,117 +4406,6 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
       } else {
         mg_http_reply(c, 404, "", "Not Found\n");
       }
-    } else if (mg_http_match_uri(hm, "/update")) {
-        //modified version of mg_http_upload
-        char buf[20] = "0", file[40], path[MG_PATH_MAX];
-        size_t max_size = 1500000;
-        long res = 0, offset, size;
-        mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
-        mg_http_get_var(&hm->query, "file", file, sizeof(file));
-        offset = strtol(buf, NULL, 0);
-        buf[0] = '0';
-        mg_http_get_var(&hm->query, "size", buf, sizeof(buf));
-        size = strtol(buf, NULL, 0);
-        mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
-        if (hm->body.len == 0) {
-          mg_http_reply(c, 200, "", "nothing to write");  // Nothing to write
-        } else if (file[0] == '\0') {
-          mg_http_reply(c, 400, "", "file required");
-          res = -1;
-        } else if (mg_path_is_sane(file) == false) {
-          mg_http_reply(c, 400, "", "%s: invalid file", file);
-          res = -2;
-        } else if (offset < 0) {
-          mg_http_reply(c, 400, "", "offset required");
-          res = -3;
-        } else if ((size_t) offset + hm->body.len > max_size) {
-          mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
-                        (unsigned long) max_size);
-          res = -4;
-        } else if (size <= 0) {
-          mg_http_reply(c, 400, "", "size required");
-          res = -5;
-        } else {
-            if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
-
-              //find spiffs partition
-              static const esp_partition_t *spiffs_partition = NULL;
-              esp_err_t ret;
-              if (offset == 0)
-                spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
-              if (spiffs_partition != NULL) {
-                  // You have found the SPIFFS partition
-                  if (offset == 0) {
-                      ret = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
-                      if (ret != ESP_OK)
-                        _LOG_A("ERROR: could not erase partition.\n");
-                      _LOG_A("SPIFFS Begin\n");
-                  }
-                  res = offset + hm->body.len;
-                  ret = esp_partition_write(spiffs_partition, offset, hm->body.ptr, hm->body.len);
-                  if (ret != ESP_OK)
-                    _LOG_A("ERROR: could not write to partition.\n");
-                  // is reboot really necessary after updating spiffs partition?
-                  // mongoose reads new files fine after refresh
-/*                  if (res >= size) {                                 // EOF
-                    ESP.restart();
-                  }*/
-              }
-            } //end of spiffs.bin
-            if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
-                static esp_ota_handle_t update_handle = 0 ;
-                static const esp_partition_t *update_partition = NULL;
-                esp_err_t err;
-                if (offset == 0) {
-                    update_partition = esp_ota_get_next_update_partition(NULL);
-                    assert(update_partition != NULL);
-                    _LOG_A("Current boot parition %s.\n", esp_ota_get_boot_partition()->label);
-                    _LOG_A("Currently running off parition %s.\n", esp_ota_get_running_partition()->label);
-                    _LOG_A("Writing to partition subtype %d at offset 0x%" PRIx32, update_partition->subtype, update_partition->address);
-                    _LOG_A("Writing to partition %s.\n", update_partition->label);
-                    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
-                    //err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
-                    if (err != ESP_OK)
-                        _LOG_A("ERROR: esp_ota_begin failed (%s)\n", esp_err_to_name(err));
-                        //esp_ota_abort(update_handle);
-                }
-                res = offset + hm->body.len;
-                err = esp_ota_write_with_offset( update_handle, (const void *)hm->body.ptr, hm->body.len, offset);
-                if (err != ESP_OK) {
-                    _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
-                    //no esp_ota_abort here?
-                }
-                if (offset >= size) {                                           //EOF
-                    _LOG_A("Total Write binary data length: %lu\n", res);
-                    err = esp_ota_end(update_handle);
-                    if (err != ESP_OK) {
-                        if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                            _LOG_A("Image validation failed, image is corrupted\n");
-                        } else {
-                            _LOG_A("esp_ota_end failed (%s)!\n", esp_err_to_name(err));
-                        }
-                        const esp_partition_t *ver_part = esp_partition_verify(update_partition);
-                        if (ver_part == NULL) {
-                            _LOG_A("Verified partition %s FAIL", update_partition->label);
-                        } else {
-                            _LOG_A("Verified partition %s SUCCESS", ver_part->label);
-                        }
-                    } else {
-                        err = esp_ota_set_boot_partition(update_partition);
-                        if (err != ESP_OK) {
-                            _LOG_A("esp_ota_set_boot_partition failed (%s)!\n", esp_err_to_name(err));
-                        }
-                        else {
-                            _LOG_A("Set boot partition to %s.\n", update_partition->label);
-                        }
-                        _LOG_A("Prepare to restart system!\n");
-                    }
-                    delay(1000);
-                    esp_restart();
-                }
-            }//end of firmware.bin
-          mg_http_reply(c, 200, "", "%ld", res);
-        }
     } else if (mg_http_match_uri(hm, "/currents") && !memcmp("POST", hm->method.ptr, hm->method.len)) {
         DynamicJsonDocument doc(200);
 
