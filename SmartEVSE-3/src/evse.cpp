@@ -3744,15 +3744,31 @@ int StoreTimeString(String DelayedTimeStr, DelayedTimeStruct *DelayedTime) {
 // takes TZname (format: Europe/Berlin) , gets TZ_INFO (posix string, format: CET-1CEST,M3.5.0,M10.5.0/3) and sets timezone accordingly
 void setTimeZone(void) {
 
-    //lookup posix string
-    FILE *fd = fopen ("/spiffs/zones.csv", "r");
-    if (fd == NULL) perror ("Error opening file /spiffs/zones.csv");
-    else {
-        bool found = false;
-        char line[70];
+    struct mg_fs *fs = &mg_fs_packed;
+  //struct mg_str mg_file_read(struct mg_fs *fs, const char *path) {
+    void *fp;
+    size_t filelen;
+    const char *path = "/data/zones.csv";
+    fs->st(path, &filelen, NULL);
+    size_t filepos = 0;
+    bool found = false;
+    if ((fp = fs->op(path, MG_FS_READ)) != NULL) {
+        char line[80];
         char tzname[30];
         TZname.toCharArray(tzname, sizeof(tzname));
-        while (fgets(line, sizeof(line), fd)) {
+        int pos = 0;
+        char c;
+        do {
+            pos = 0;
+            do {
+                fs->rd(fp, &c, 1);
+                if (filepos < filelen)
+                    line[pos]=c;
+                pos++;
+                filepos++;
+            } while (pos < sizeof(line) - 1 && c != '\n' && filepos < filelen);
+            //terminate with NULL character
+            line[pos]=0;
             found = strstr(line, tzname);
             if (found) {
                 char *pos = strstr(line, ",");
@@ -3765,9 +3781,9 @@ void setTimeZone(void) {
                 tzset();
                 break;
             }
-        }
-        fclose(fd);
-   }
+        } while (filepos < filelen && !found);
+        fs->cl(fp);
+    }
 }
 
 // wrapper so hasParam and getParam still work
@@ -3833,8 +3849,9 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
     struct mg_str host = mg_url_host(s_url);
 
     if (mg_url_is_ssl(s_url)) {
-      struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
-                                 .name = mg_url_host(s_url)};
+      struct mg_tls_opts opts = {.name = mg_url_host(s_url)};
+      //struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
+      //                           .name = mg_url_host(s_url)};
       mg_tls_init(c, &opts);
     }
 
@@ -3856,10 +3873,10 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
         struct mg_str json = hm->body;
         char *tz = mg_json_get_str(json, "$.timezone");
         TZname = String(tz);
+        _LOG_A("Timezone detected: tz=%s.\n", tz);
         setTimeZone();
-        _LOG_A("DINGO JSON result=%s.\n", TZname.c_str());
     } else {
-        _LOG_A("DINGO: empty zonelist\n");
+        _LOG_A("Could not detect Timezone.\n");
     }
     c->is_draining = 1;        // Tell mongoose to close this connection
     *(bool *) c->fn_data = true;  // Tell event loop to stop
@@ -4724,7 +4741,6 @@ void WiFiSetup(void) {
     Debug.showColors(true); // Colors
 #endif
     StartwebServer();
-
     if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
         bool done = false;              // Event handler flips it to true
         mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
