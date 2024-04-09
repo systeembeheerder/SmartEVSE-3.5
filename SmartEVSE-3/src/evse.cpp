@@ -3947,7 +3947,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
                     //no esp_ota_abort here?
                 }
-                if (offset >= size) {                                           //EOF
+                if (res >= size) {                                           //EOF
                     _LOG_A("Total Write binary data length: %lu\n", res);
                     err = esp_ota_end(update_handle);
                     if (err != ESP_OK) {
