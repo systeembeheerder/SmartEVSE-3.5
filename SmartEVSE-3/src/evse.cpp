@@ -3909,7 +3909,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         mg_http_get_var(&hm->query, "size", buf, sizeof(buf));
         size = strtol(buf, NULL, 0);
         if (hm->body.len == 0) {
-          mg_http_reply(c, 200, "", "nothing to write");  // Nothing to write
+          struct mg_http_serve_opts opts = {.root_dir = "/data", .ssi_pattern = NULL, .extra_headers = NULL, .mime_types = NULL, .page404 = NULL, .fs = &mg_fs_packed };
+          mg_http_serve_file(c, hm, "/data/update2.html", &opts);
         } else if (file[0] == '\0') {
           mg_http_reply(c, 400, "", "file required");
           res = -1;
