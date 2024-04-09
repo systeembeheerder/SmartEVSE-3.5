@@ -3975,7 +3975,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     delay(1000);
                     esp_restart();
                 }
-            }//end of firmware.bin
+            } else //end of firmware.bin
+                mg_http_reply(c, 400, "", "only allowed to flash firmware.bin");
           mg_http_reply(c, 200, "", "%ld", res);
         }
     } else if (mg_http_match_uri(hm, "/settings")) {                            // REST API call?
