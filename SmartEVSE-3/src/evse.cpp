@@ -4,7 +4,6 @@
 #include <Preferences.h>
 
 #include <FS.h>
-#include <SPIFFS.h>
 
 #include <WiFi.h>
 
@@ -47,11 +46,9 @@ RemoteDebug Debug;
 struct tm timeinfo;
 
 //mongoose stuff
-#define FS_ROOT "/spiffs"
 #define MG_IO_SIZE 1000
 #define MG_ARCH MG_ARCH_ESP32
 #include "mongoose.h"
-#include "esp_spiffs.h"
 #include "esp_log.h"
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 // end of mongoose stuff
@@ -3747,12 +3744,11 @@ void setTimeZone(void) {
     struct mg_fs *fs = &mg_fs_packed;
   //struct mg_str mg_file_read(struct mg_fs *fs, const char *path) {
     void *fp;
-    size_t filelen;
+    size_t filelen, filepos = 0;
     const char *path = "/data/zones.csv";
     fs->st(path, &filelen, NULL);
-    size_t filepos = 0;
-    bool found = false;
     if ((fp = fs->op(path, MG_FS_READ)) != NULL) {
+        bool found = false;
         char line[80];
         char tzname[30];
         TZname.toCharArray(tzname, sizeof(tzname));
@@ -3850,8 +3846,6 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
 
     if (mg_url_is_ssl(s_url)) {
       struct mg_tls_opts opts = {.name = mg_url_host(s_url)};
-      //struct mg_tls_opts opts = {.ca = mg_unpacked("/spiffs/ca.pem"),
-      //                           .name = mg_url_host(s_url)};
       mg_tls_init(c, &opts);
     }
 
@@ -3885,14 +3879,6 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
   }
 }
 
-// SPIFFS is flat, so tell Mongoose that the FS root is a directory
-// This cludge is not required for filesystems with directory support
-static int my_stat(const char *path, size_t *size, time_t *mtime) {
-  int flags = mg_fs_posix.st(path, size, mtime);
-  if (strcmp(path, FS_ROOT) == 0) flags |= MG_FS_DIR;
-  return flags;
-}
-
 // Connection event handler function
 // indenting lower level two spaces to stay compatible with old StartWebServer
 static void fn(struct mg_connection *c, int ev, void *ev_data) {
@@ -3913,7 +3899,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         ESP.restart();
     } else if (mg_http_match_uri(hm, "/update")) {
         //modified version of mg_http_upload
-        char buf[20] = "0", file[40], path[MG_PATH_MAX];
+        char buf[20] = "0", file[40];
         size_t max_size = 1500000;
         long res = 0, offset, size;
         mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
@@ -3922,52 +3908,21 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         buf[0] = '0';
         mg_http_get_var(&hm->query, "size", buf, sizeof(buf));
         size = strtol(buf, NULL, 0);
-        mg_snprintf(path, sizeof(path), "%s%c%s", "/spiffs", MG_DIRSEP, file);
         if (hm->body.len == 0) {
           mg_http_reply(c, 200, "", "nothing to write");  // Nothing to write
         } else if (file[0] == '\0') {
           mg_http_reply(c, 400, "", "file required");
           res = -1;
-        } else if (mg_path_is_sane(file) == false) {
-          mg_http_reply(c, 400, "", "%s: invalid file", file);
-          res = -2;
         } else if (offset < 0) {
           mg_http_reply(c, 400, "", "offset required");
           res = -3;
         } else if ((size_t) offset + hm->body.len > max_size) {
-          mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
-                        (unsigned long) max_size);
+          mg_http_reply(c, 400, "", "over max size of %lu", (unsigned long) max_size);
           res = -4;
         } else if (size <= 0) {
           mg_http_reply(c, 400, "", "size required");
           res = -5;
         } else {
-            if (!memcmp(file,"spiffs.bin", sizeof("spiffs.bin"))) {
-
-              //find spiffs partition
-              static const esp_partition_t *spiffs_partition = NULL;
-              esp_err_t ret;
-              if (offset == 0)
-                spiffs_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
-              if (spiffs_partition != NULL) {
-                  // You have found the SPIFFS partition
-                  if (offset == 0) {
-                      ret = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
-                      if (ret != ESP_OK)
-                        _LOG_A("ERROR: could not erase partition.\n");
-                      _LOG_A("SPIFFS Begin\n");
-                  }
-                  res = offset + hm->body.len;
-                  ret = esp_partition_write(spiffs_partition, offset, hm->body.ptr, hm->body.len);
-                  if (ret != ESP_OK)
-                    _LOG_A("ERROR: could not write to partition.\n");
-                  // is reboot really necessary after updating spiffs partition?
-                  // mongoose reads new files fine after refresh
-/*                  if (res >= size) {                                 // EOF
-                    ESP.restart();
-                  }*/
-              }
-            } //end of spiffs.bin
             if (!memcmp(file,"firmware.bin", sizeof("firmware.bin"))) {
                 static esp_ota_handle_t update_handle = 0 ;
                 static const esp_partition_t *update_partition = NULL;
@@ -4622,57 +4577,6 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 
 void StartwebServer(void) {
     //mongoose
-    // Mount filesystem
-    esp_vfs_spiffs_conf_t conf = {
-      .base_path = FS_ROOT, .partition_label = "spiffs", .max_files = 20, .format_if_mount_failed = false};
-    int res = esp_vfs_spiffs_register(&conf);
-    MG_INFO(("FS at %s initialised, status: %d", conf.base_path, res));
-
-      if (res != ESP_OK) {
-        if (res == ESP_FAIL) {
-            MG_INFO(("Failed to mount or format filesystem"));
-        } else if (res == ESP_ERR_NOT_FOUND) {
-            MG_INFO(("Failed to find SPIFFS partition"));
-        } else {
-            MG_INFO(("Failed to initialize SPIFFS (%s)", esp_err_to_name(res)));
-        }
-        //return;
-    }
-
-    res = esp_spiffs_mounted("spiffs");
-    MG_INFO(("FS is mounted: %d.\n", res));
-
-//#ifdef CONFIG_EXAMPLE_SPIFFS_CHECK_ON_START
-    MG_INFO(("Performing SPIFFS_check()."));
-    int ret = esp_spiffs_check(conf.partition_label);
-    if (ret != ESP_OK) {
-        MG_INFO(("SPIFFS_check() failed (%s)", esp_err_to_name(ret)));
-        //return;
-    } else {
-        MG_INFO(("SPIFFS_check() successful"));
-    }
-//#endif
-/*
-    size_t total = 0, used = 0;
-    ret = esp_spiffs_info(conf.partition_label, &total, &used);
-    if (ret != ESP_OK) {
-        MG_INFO(("Failed to get SPIFFS partition information (%s). Formatting...", esp_err_to_name(ret)));
-        esp_spiffs_format(conf.partition_label);
-        //return;
-    } else {
-        MG_INFO(("Partition size: total: %d, used: %d", total, used));
-    }
-
-
-#define INDEX "/spiffs/index.html"
-    FILE* f = fopen(INDEX, "w+");
-    if (f == NULL) {
-        MG_INFO(("Failed to open file for writing\n"));
-        //return;
-    }
-    fprintf(f,R"(<!DOCTYPE html> <html> <head> <title>Example</title> </head> <body> <p>DINGO3 test.</p> </body> </html>)");
-    fclose(f);
-*/
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
     mg_log_set(MG_LL_DEBUG);
@@ -4935,15 +4839,6 @@ void setup() {
         _LOG_A("not programmed!!!\n");
     }
     
-    // Initialize SPIFFS
-    if (!SPIFFS.begin(true)) {
-        _LOG_A("SPIFFS failed! Already tried formatting. HALT\n");
-        while (true) {
-          delay(1);
-        }
-    }
-    _LOG_A("Total SPIFFS bytes: %u, Bytes used: %u\n",SPIFFS.totalBytes(),SPIFFS.usedBytes());
-
     // We might need some sort of authentication in the future.
     // SmartEVSE v3 have programmed ECDSA-256 keys stored in nvs
     // Unused for now.
