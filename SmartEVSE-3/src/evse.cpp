@@ -3952,20 +3952,20 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     err = esp_ota_end(update_handle);
                     if (err != ESP_OK) {
                         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                            _LOG_A("Image validation failed, image is corrupted\n");
+                            _LOG_A("ERROR: Image validation failed, image is corrupted\n");
                         } else {
-                            _LOG_A("esp_ota_end failed (%s)!\n", esp_err_to_name(err));
+                            _LOG_A("ERROR: esp_ota_end failed (%s)!\n", esp_err_to_name(err));
                         }
                         const esp_partition_t *ver_part = esp_partition_verify(update_partition);
                         if (ver_part == NULL) {
-                            _LOG_A("Verified partition %s FAIL", update_partition->label);
+                            _LOG_A("ERROR: Verified partition %s FAIL", update_partition->label);
                         } else {
                             _LOG_A("Verified partition %s SUCCESS", ver_part->label);
                         }
                     } else {
                         err = esp_ota_set_boot_partition(update_partition);
                         if (err != ESP_OK) {
-                            _LOG_A("esp_ota_set_boot_partition failed (%s)!\n", esp_err_to_name(err));
+                            _LOG_A("ERROR: esp_ota_set_boot_partition failed (%s)!\n", esp_err_to_name(err));
                         }
                         else {
                             _LOG_A("Set boot partition to %s.\n", update_partition->label);
