@@ -4642,7 +4642,7 @@ void WiFiSetup(void) {
 #endif
     StartwebServer();
     if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
-        delay(5000);                                                            //without this delay mongoose DNS sometimes fails
+        delay(1000);                                                            //without this delay mongoose DNS sometimes fails
         bool done = false;              // Event handler flips it to true
         mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
     }
