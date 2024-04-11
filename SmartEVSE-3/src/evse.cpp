@@ -46,8 +46,6 @@ RemoteDebug Debug;
 struct tm timeinfo;
 
 //mongoose stuff
-#define MG_IO_SIZE 1000
-#define MG_ARCH MG_ARCH_ESP32
 #include "mongoose.h"
 #include "esp_log.h"
 struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
@@ -3818,11 +3816,9 @@ const String& webServerRequest::value() {
 //end of wrapper
 
 //mongoose http_client for picking up the timezone
-//static const char *s_url = "http://info.cern.ch/";
-//static const char *s_url = "http://188.184.100.182/";
-//static const char *s_url = "https://104.16.44.99/timezones/data/leap-seconds.list";
 //url to get current timezone in Europe/Berlin format:
 //curl "http://worldtimeapi.org/api/ip"
+//for some reason mongoose dns does not work on esp32, so hardcoded ip address:
 static const char *s_url = "http://213.188.196.246/api/ip";
 //urls for converting timezone to posix string:
 //static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
@@ -3832,51 +3828,50 @@ static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
 
 // Print HTTP response and signal that we're done
 static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
-  if (ev == MG_EV_OPEN) {
-    // Connection created. Store connect expiration time in c->data
-    *(uint64_t *) c->data = mg_millis() + s_timeout_ms;
-  } else if (ev == MG_EV_POLL) {
-    if (mg_millis() > *(uint64_t *) c->data &&
-        (c->is_connecting || c->is_resolving)) {
-      mg_error(c, "Connect timeout");
+    if (ev == MG_EV_OPEN) {
+        // Connection created. Store connect expiration time in c->data
+        *(uint64_t *) c->data = mg_millis() + s_timeout_ms;
+    } else if (ev == MG_EV_POLL) {
+        if (mg_millis() > *(uint64_t *) c->data && (c->is_connecting || c->is_resolving)) {
+            mg_error(c, "Connect timeout");
+        }
+    } else if (ev == MG_EV_CONNECT) {
+        // Connected to server. Extract host name from URL
+        struct mg_str host = mg_url_host(s_url);
+  
+        if (mg_url_is_ssl(s_url)) {
+            struct mg_tls_opts opts = {.name = mg_url_host(s_url)};
+            mg_tls_init(c, &opts);
+        }
+  
+        // Send request
+        int content_length = s_post_data ? strlen(s_post_data) : 0;
+        mg_printf(c,
+                  "%s %s HTTP/1.0\r\n"
+                  "Host: %.*s\r\n"
+                  "Content-Type: octet-stream\r\n"
+                  "Content-Length: %d\r\n"
+                  "\r\n",
+                  s_post_data ? "POST" : "GET", mg_url_uri(s_url), (int) host.len,
+                  host.ptr, content_length);
+        mg_send(c, s_post_data, content_length);
+    } else if (ev == MG_EV_HTTP_MSG) {
+        // Response is received. Print it
+        struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+        if (hm->message.len > 1) {
+            struct mg_str json = hm->body;
+            char *tz = mg_json_get_str(json, "$.timezone");
+            TZname = String(tz);
+            _LOG_A("Timezone detected: tz=%s.\n", tz);
+            setTimeZone();
+        } else {
+            _LOG_A("Could not detect Timezone.\n");
+        }
+        c->is_draining = 1;        // Tell mongoose to close this connection
+        *(bool *) c->fn_data = true;  // Tell event loop to stop
+    } else if (ev == MG_EV_ERROR) {
+        *(bool *) c->fn_data = true;  // Error, tell event loop to stop
     }
-  } else if (ev == MG_EV_CONNECT) {
-    // Connected to server. Extract host name from URL
-    struct mg_str host = mg_url_host(s_url);
-
-    if (mg_url_is_ssl(s_url)) {
-      struct mg_tls_opts opts = {.name = mg_url_host(s_url)};
-      mg_tls_init(c, &opts);
-    }
-
-    // Send request
-    int content_length = s_post_data ? strlen(s_post_data) : 0;
-    mg_printf(c,
-              "%s %s HTTP/1.0\r\n"
-              "Host: %.*s\r\n"
-              "Content-Type: octet-stream\r\n"
-              "Content-Length: %d\r\n"
-              "\r\n",
-              s_post_data ? "POST" : "GET", mg_url_uri(s_url), (int) host.len,
-              host.ptr, content_length);
-    mg_send(c, s_post_data, content_length);
-  } else if (ev == MG_EV_HTTP_MSG) {
-    // Response is received. Print it
-    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-    if (hm->message.len > 1) {
-        struct mg_str json = hm->body;
-        char *tz = mg_json_get_str(json, "$.timezone");
-        TZname = String(tz);
-        _LOG_A("Timezone detected: tz=%s.\n", tz);
-        setTimeZone();
-    } else {
-        _LOG_A("Could not detect Timezone.\n");
-    }
-    c->is_draining = 1;        // Tell mongoose to close this connection
-    *(bool *) c->fn_data = true;  // Tell event loop to stop
-  } else if (ev == MG_EV_ERROR) {
-    *(bool *) c->fn_data = true;  // Error, tell event loop to stop
-  }
 }
 
 // Connection event handler function
@@ -4934,7 +4929,6 @@ void setup() {
 
 }
 
-////mongoose playground
 void loop() {
     //this loop is for non-time critical stuff that needs to run approx 1 / second
     delay(1000);
