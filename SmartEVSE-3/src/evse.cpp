@@ -3939,17 +3939,18 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
                     //err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
                     if (err != ESP_OK)
                         _LOG_A("ERROR: esp_ota_begin failed (%s)\n", esp_err_to_name(err));
-                        //esp_ota_abort(update_handle);
+                        //if esp_ota_begin failed, there is no update_handle, so no esp_ota_abort
                 }
                 res = offset + hm->body.len;
                 err = esp_ota_write_with_offset( update_handle, (const void *)hm->body.ptr, hm->body.len, offset);
                 if (err != ESP_OK) {
                     _LOG_A("ERROR: Could not write to partition %s, offset=%lu.\n", update_partition->label, offset);
-                    //no esp_ota_abort here?
+                    esp_ota_abort(update_handle);
                 }
                 if (res >= size) {                                           //EOF
                     _LOG_A("Total Write binary data length: %lu\n", res);
                     err = esp_ota_end(update_handle);
+                    //not sure if esp_ota_end fails, it is necessary to call esp_ota_abort
                     if (err != ESP_OK) {
                         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
                             _LOG_A("ERROR: Image validation failed, image is corrupted\n");
