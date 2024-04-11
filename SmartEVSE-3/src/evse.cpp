@@ -3817,11 +3817,8 @@ const String& webServerRequest::value() {
 
 //mongoose http_client for picking up the timezone
 //url to get current timezone in Europe/Berlin format:
-//curl "http://worldtimeapi.org/api/ip"
-//for some reason mongoose dns does not work on esp32, so hardcoded ip address:
-static const char *s_url = "http://213.188.196.246/api/ip";
+static const char *s_url = "http://worldtimeapi.org/api/ip";
 //urls for converting timezone to posix string:
-//static const char *s_url = "https://185.199.111.133/nayarsystems/posix_tz_db/master/zones.csv";
 //static const char *s_url = "https://raw.githubusercontent.com/nayarsystems/posix_tz_db/master/zones.csv";
 static const char *s_post_data = NULL;      // POST data
 static const uint64_t s_timeout_ms = 1500;  // Connect timeout in milliseconds
@@ -4578,6 +4575,7 @@ void StartwebServer(void) {
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
     mg_log_set(MG_LL_DEBUG);
+    //mg_log_set(MG_LL_VERBOSE);
 
     //end mongoose
     _LOG_A("HTTP server started\n");
@@ -4644,6 +4642,7 @@ void WiFiSetup(void) {
 #endif
     StartwebServer();
     if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
+        delay(5000);                                                            //without this delay mongoose DNS sometimes fails
         bool done = false;              // Event handler flips it to true
         mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
     }
