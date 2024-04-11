@@ -4574,7 +4574,7 @@ void StartwebServer(void) {
     //mongoose
     mg_mgr_init(&mgr);  // Initialise event manager
     mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
-    mg_log_set(MG_LL_DEBUG);
+    mg_log_set(MG_LL_NONE);
     //mg_log_set(MG_LL_VERBOSE);
 
     //end mongoose
