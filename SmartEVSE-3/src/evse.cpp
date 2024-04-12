@@ -3841,7 +3841,8 @@ static void fn_client(struct mg_connection *c, int ev, void *ev_data) {
         struct mg_str host = mg_url_host(s_url);
   
         if (mg_url_is_ssl(s_url)) {
-            struct mg_tls_opts opts = {.name = mg_url_host(s_url)};
+            struct mg_str empty = { "", 0 };
+            struct mg_tls_opts opts = {.ca = empty, .cert = empty, .key = empty, .name = mg_url_host(s_url)};
             mg_tls_init(c, &opts);
         }
   
