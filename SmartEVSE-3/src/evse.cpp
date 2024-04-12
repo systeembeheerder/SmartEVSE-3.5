@@ -3774,7 +3774,7 @@ void setTimeZone(char *tzname) {
                 TZinfo = String(tz_info);
                 tzset();
                 if (preferences.begin("settings", false) ) {
-                    //preferences.putString("TimezoneInfo", tz_info); //TODO test
+                    preferences.putString("TimezoneInfo", tz_info);
                     preferences.end();
                 }
                 break;
@@ -4584,8 +4584,8 @@ void onWifiEvent(WiFiEvent_t event) {
             delay(1000);
             //mongoose
             mg_mgr_init(&mgr);  // Initialise event manager
-            //mg_log_set(MG_LL_NONE);
-            mg_log_set(MG_LL_VERBOSE);
+            mg_log_set(MG_LL_NONE);
+            //mg_log_set(MG_LL_VERBOSE);
 
             if (TZinfo == "") {
                 bool done = false;              // Event handler flips it to true
