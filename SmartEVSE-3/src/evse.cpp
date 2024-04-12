@@ -3715,10 +3715,6 @@ void write_settings(void) {
     ConfigChanged = 1;
 }
 
-void StopwebServer(void) {
-    mg_mgr_free(&mgr);
-}
-
 /* Takes TimeString in format
  * String = "2023-04-14T11:31"
  * and store it in the DelayedTimeStruct
@@ -4577,44 +4573,36 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
   }
 }
 
-void StartwebServer(void) {
-    //mongoose
-    mg_mgr_init(&mgr);  // Initialise event manager
-    //mg_log_set(MG_LL_NONE);
-    mg_log_set(MG_LL_VERBOSE);
-
-    if (TZinfo == "") {
-        _LOG_A("DINGO before delay");
-        //delay(5000);                                                            //without this delay mongoose DNS sometimes fails
-        _LOG_A("DINGO after delay");
-        bool done = false;              // Event handler flips it to true
-        mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
-        _LOG_A("DINGO after connect");
-    }
-    //end mongoose
-    mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
-    _LOG_A("HTTP server started\n");
-
-#if MQTT
-    // Setup MQTT client
-    MQTTclient.begin(client);
-    SetupMQTTClient();
-#endif
-}
-
 void onWifiEvent(WiFiEvent_t event) {
     switch (event) {
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP:
             _LOG_A("Connected to AP: %s, Local IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
             break;
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED:
-            delay(1000);
-            StartwebServer();
             _LOG_A("Connected or reconnected to WiFi\n");
+            delay(1000);
+            //mongoose
+            mg_mgr_init(&mgr);  // Initialise event manager
+            //mg_log_set(MG_LL_NONE);
+            mg_log_set(MG_LL_VERBOSE);
+
+            if (TZinfo == "") {
+                bool done = false;              // Event handler flips it to true
+                mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
+            }
+            //end mongoose
+            mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
+            _LOG_A("HTTP server started\n");
+
+        #if MQTT
+            // Setup MQTT client
+            MQTTclient.begin(client);
+            SetupMQTTClient();
+        #endif
             break;
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
             if (WIFImode == 1) {
-                StopwebServer();
+                mg_mgr_free(&mgr);
                 _LOG_A("WiFi Disconnected. Reconnecting...\n");
                 //WiFi.setAutoReconnect(true);  //I know this is very counter-intuitive, you would expect this line in WiFiSetup but this is according to docs
                                                 //look at: https://github.com/alanswx/ESPAsyncWiFiManager/issues/92
@@ -4667,7 +4655,6 @@ void WiFiSetup(void) {
 
 void SetupPortalTask(void * parameter) {
     _LOG_A("Start Portal...\n");
-    StopwebServer();
     WiFi.disconnect(true);
     wifiManager.setAPStaticIPConfig(IPAddress(192,168,4,1), IPAddress(192,168,4,1), IPAddress(255,255,255,0));
     //wifiManager.setTitle(String title);
@@ -4687,7 +4674,6 @@ void SetupPortalTask(void * parameter) {
     handleWIFImode();
     write_settings();
     LCDNav = 0;
-    StartwebServer();                                                           //restart webserver
     vTaskDelete(NULL);                                                          //end this task so it will not take up resources
 }
 
