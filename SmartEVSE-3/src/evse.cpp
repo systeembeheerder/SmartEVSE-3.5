@@ -4573,25 +4573,41 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 void StartwebServer(void) {
     //mongoose
     mg_mgr_init(&mgr);  // Initialise event manager
-    mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
-    mg_log_set(MG_LL_NONE);
-    //mg_log_set(MG_LL_VERBOSE);
+    //mg_log_set(MG_LL_NONE);
+    mg_log_set(MG_LL_VERBOSE);
 
+    if (TZinfo == "") {
+        _LOG_A("DINGO before delay");
+        //delay(5000);                                                            //without this delay mongoose DNS sometimes fails
+        _LOG_A("DINGO after delay");
+        bool done = false;              // Event handler flips it to true
+        mg_http_connect(&mgr, s_url, fn_client, &done);  // Create client connection
+        _LOG_A("DINGO after connect");
+    }
     //end mongoose
+    mg_http_listen(&mgr, "http://0.0.0.0:80", fn, NULL);  // Setup listener
     _LOG_A("HTTP server started\n");
 
+#if MQTT
+    // Setup MQTT client
+    MQTTclient.begin(client);
+    SetupMQTTClient();
+#endif
 }
 
 void onWifiEvent(WiFiEvent_t event) {
     switch (event) {
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP:
-            _LOG_A("Connected to AP: %s\nLocal IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+            _LOG_A("Connected to AP: %s, Local IP: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
             break;
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            delay(1000);
+            StartwebServer();
             _LOG_A("Connected or reconnected to WiFi\n");
             break;
         case WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
             if (WIFImode == 1) {
+                StopwebServer();
                 _LOG_A("WiFi Disconnected. Reconnecting...\n");
                 //WiFi.setAutoReconnect(true);  //I know this is very counter-intuitive, you would expect this line in WiFiSetup but this is according to docs
                                                 //look at: https://github.com/alanswx/ESPAsyncWiFiManager/issues/92
@@ -4640,7 +4656,7 @@ void WiFiSetup(void) {
     Debug.begin(APhostname, 23, 1);
     Debug.showColors(true); // Colors
 #endif
-    StartwebServer();
+
     if (TZname == "") {//TODO consider storing tz_info instead of TZname, then we don't have to go through setTimeZone every reboot...
         delay(1000);                                                            //without this delay mongoose DNS sometimes fails
         bool done = false;              // Event handler flips it to true
@@ -4920,11 +4936,6 @@ void setup() {
 
     CP_ON;           // CP signal ACTIVE
 
-#if MQTT
-    // Setup MQTT client
-    MQTTclient.begin(client);
-    SetupMQTTClient();
-#endif
 
 }
 
