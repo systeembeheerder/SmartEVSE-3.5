@@ -2591,15 +2591,11 @@ static struct mg_connection *s_conn;              // Client connection
 class MQTTclient_t {
 private:
     struct mg_connection *c_internal;
-    const char *s_url_internal;
-
 public:
     void setConnection(struct mg_connection *c);
     void publish(const String &topic, const String &payload, bool retained, int qos);
     void subscribe(const String &topic, int qos);
     bool connected(void) { return (s_conn); };
-    const char* getUrl(void) { return (s_url_internal); };
-    void setUrl(const char* Url);
 };
 
 void MQTTclient_t::publish(const String &topic, const String &payload, bool retained, int qos) {
@@ -2616,6 +2612,7 @@ void MQTTclient_t::publish(const String &topic, const String &payload, bool reta
 }
 
 void MQTTclient_t::subscribe(const String &topic, int qos) {
+    return;//TODO
     struct mg_mqtt_opts sub_opts;
     memset(&sub_opts, 0, sizeof(sub_opts));
     sub_opts.topic.ptr = topic.c_str();
@@ -2628,13 +2625,10 @@ void MQTTclient_t::setConnection(struct mg_connection *c) {
     c_internal = c;
 }
 
-void MQTTclient_t::setUrl(const char * Url) {
-    s_url_internal = Url;
-}
-
 MQTTclient_t MQTTclient;
 
 void SetupMQTTClient() {
+    _LOG_A("DINGO: entering SetupMQTTClient.\n");
     // Disconnect existing connection if connected
     //if (MQTTclient.connected())
     //    MQTTclient.disconnect();
@@ -2643,19 +2637,6 @@ void SetupMQTTClient() {
     if (MQTTHost == "")
         return;
 
-    static const char *s_url;
-    //mqtt[s]://[username][:password]@host.domain[:port]
-    String MQTTUri = "mqtt://";
-    if (MQTTuser != "") {
-        MQTTUri += MQTTuser;
-        if (MQTTpassword != "") {
-            MQTTUri += ":" + MQTTpassword;
-        }
-        MQTTUri += "@";
-    }
-    MQTTUri += MQTTHost + MQTTPort;
-    s_url = MQTTUri.c_str();
-    MQTTclient.setUrl(s_url);
     //MQTTclient.setWill(String(MQTTprefix + "/connected").c_str(), "offline", true, 0);
 
     // Keepalive every 15s
@@ -2684,11 +2665,6 @@ void SetupMQTTClient() {
     const String device_payload = String(R"("device": {)") + jsn("model","SmartEVSE v3") + jsna("identifiers", MQTTprefix) + jsna("name", MQTTprefix) + jsna("manufacturer","Stegen") + jsna("configuration_url", "http://" + WiFi.localIP().toString().c_str()) + jsna("sw_version", String(VERSION)) + "}";
     //a device SmartEVSE-1001 consists of multiple entities, and an entity can be in the domains sensor, number, select etc.
     String entity_suffix, entity_name, optional_payload;
-//////playground
-_LOG_A("DINGO: dummy.\n");
-//MQTTclient.publish("topic", "payload", true, 0);
-MQTTclient.publish(MQTTprefix + "/MainsCurrentL1", String(Irms[0]), false, 0);
-//////end of playground
     //some self-updating variables here:
 #define entity_id MQTTprefix + "-" + entity_suffix
 #define entity_path MQTTprefix + "/" + entity_suffix
@@ -3877,12 +3853,13 @@ const String& webServerRequest::value() {
 //end of wrapper
 
 #if MQTT
+static const char *s_mqtt_url;
 //TODO perhaps integrate multiple fn callback functions?
 static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
+  _LOG_A("DINGO in fn_mqtt, ev=%i.\n", ev);
   //MQTTclient_t* MQTTclient = new MQTTclient_t();
   //MQTTclient* connection = new MQTTclient();
   MQTTclient.setConnection(c);
-  const char *s_url = MQTTclient.getUrl();
   if (ev == MG_EV_OPEN) {
     MG_INFO(("%lu CREATED", c->id));
     // c->is_hexdumping = 1;
@@ -3891,9 +3868,9 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     MG_ERROR(("%lu ERROR %s", c->id, (char *) ev_data));
   } else if (ev == MG_EV_CONNECT) {
     // If target URL is SSL/TLS, command client connection to use TLS
-    if (mg_url_is_ssl(s_url)) {
+    if (mg_url_is_ssl(s_mqtt_url)) {
       struct mg_str empty = { "", 0 };
-      struct mg_tls_opts opts = {.ca = empty, .cert = empty, .key = empty, .name = mg_url_host(s_url)};
+      struct mg_tls_opts opts = {.ca = empty, .cert = empty, .key = empty, .name = mg_url_host(s_mqtt_url)};
       //struct mg_tls_opts opts = {.ca = empty};
       mg_tls_init(c, &opts);
     }
@@ -3901,7 +3878,7 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     // MQTT connect is successful
     //struct mg_str subt = mg_str(s_sub_topic);
     //struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
-    MG_INFO(("%lu CONNECTED to %s", c->id, s_url));
+    MG_INFO(("%lu CONNECTED to %s", c->id, s_mqtt_url));
     SetupMQTTClient();
 /*    struct mg_mqtt_opts sub_opts;
     memset(&sub_opts, 0, sizeof(sub_opts));
@@ -3961,8 +3938,7 @@ src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num
   opts.message = mg_str("bye");
   opts.qos = 0;
   opts.version = 4;
-  const char *s_url = MQTTclient.getUrl();
-  if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_url, &opts, fn_mqtt, NULL);
+  if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_mqtt_url, &opts, fn_mqtt, NULL);
 }
 #endif
 
@@ -4814,6 +4790,22 @@ void timeSyncCallback(struct timeval *tv)
 
 // Setup Wifi 
 void WiFiSetup(void) {
+
+#if MQTT
+    //mqtt[s]://[username][:password]@host.domain[:port]
+    String MQTTUri = "mqtt://";
+    if (MQTTuser != "") {
+        MQTTUri += MQTTuser;
+        if (MQTTpassword != "") {
+            MQTTUri += ":" + MQTTpassword;
+        }
+        MQTTUri += "@";
+    }
+    MQTTUri += MQTTHost + ":" + String(MQTTPort);
+    s_mqtt_url = MQTTUri.c_str();
+    _LOG_A("DINGO: s_mqtt_url=%s.\n", s_mqtt_url);
+    //MQTTclient.setUrl(s_mqtt_url);
+#endif
     //wifiManager.setDebugOutput(true);
     wifiManager.setMinimumSignalQuality(-1);
     //WiFi.setAutoReconnect(true);
@@ -5107,7 +5099,7 @@ void setup() {
 
 void loop() {
     //this loop is for non-time critical stuff that needs to run approx 1 / second
-    delay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     getLocalTime(&timeinfo, 1000U);
     if (!LocalTimeSet) {
         _LOG_A("Time not synced with NTP yet.\n");
