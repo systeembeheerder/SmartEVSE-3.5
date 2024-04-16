@@ -3857,9 +3857,6 @@ const String& webServerRequest::value() {
 
 #if MQTT
 ///playground
-static const char *s_sub_topic = "mg/+/test";     // Publish topic
-static const char *s_pub_topic = "mg/clnt/test";  // Subscribe topic
-static int s_qos = 1;                             // MQTT QoS
 const char StrErrorMQTT[20][20] = { "MG_EV_ERROR", "MG_EV_OPEN", "MG_EV_POLL", "MG_EV_RESOLVE", "MG_EV_CONNECT", "MG_EV_ACCEPT", "MG_EV_TLS_HS", "MG_EV_READ", "MG_EV_WRITE", "MG_EV_CLOSE", "MG_EV_HTTP_MSG", "MG_EV_WS_OPEN", "MG_EV_WS_MSG", "MG_EV_WS_CTL", "MG_EV_MQTT_CMD", "MG_EV_MQTT_MSG", "MG_EV_MQTT_OPEN", "MG_EV_SNTP_TIME", "MG_EV_WAKEUP", "MG_EV_USER"};
 ///end of playground
 static const char *s_mqtt_url = "mqtt://10.0.0.69:1883";
@@ -3887,11 +3884,11 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     }
   } else if (ev == MG_EV_MQTT_OPEN) {
     // MQTT connect is successful
-    struct mg_str subt = mg_str(s_sub_topic);
-    struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
+//    struct mg_str subt = mg_str(s_sub_topic);
+//    struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
     MG_INFO(("%lu CONNECTED to %s", c->id, s_mqtt_url));
     SetupMQTTClient();
-    struct mg_mqtt_opts sub_opts;
+/*    struct mg_mqtt_opts sub_opts;
     memset(&sub_opts, 0, sizeof(sub_opts));
     sub_opts.topic = subt;
     sub_opts.qos = s_qos;
@@ -3904,7 +3901,7 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     pub_opts.qos = s_qos, pub_opts.retain = false;
     mg_mqtt_pub(c, &pub_opts);
     MG_INFO(("%lu PUBLISHED %.*s -> %.*s", c->id, (int) data.len, data.ptr,
-             (int) pubt.len, pubt.ptr));
+             (int) pubt.len, pubt.ptr));*/
   } else if (ev == MG_EV_MQTT_MSG) {
     // When we get echo response, print it
     struct mg_mqtt_message *mm = (struct mg_mqtt_message *) ev_data;
@@ -3946,8 +3943,8 @@ src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num
   struct mg_mqtt_opts opts;
   memset(&opts, 0, sizeof(opts));
   opts.clean = true;
-  opts.topic = mg_str(s_pub_topic);
-  opts.message = mg_str("bye");
+//  opts.topic = mg_str(s_pub_topic);
+//  opts.message = mg_str("bye"); //TODO do we have to send a disconnect message?
   opts.qos = 0;
   opts.version = 4;
   if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_mqtt_url, &opts, fn_mqtt, NULL);
