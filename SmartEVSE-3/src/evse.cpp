@@ -2474,7 +2474,7 @@ uint8_t PollEVNode = NR_EVSES, updated = 0;
 }
 
 #if MQTT
-void mqtt_receive_callback(const String &topic, const String &payload) {
+void mqtt_receive_callback(const String topic, const String payload) {
     if (topic == MQTTprefix + "/Set/Mode") {
         if (payload == "Off") {
             ToModemWaitStateTimer = 0;
@@ -2629,6 +2629,7 @@ MQTTclient_t MQTTclient;
 
 void SetupMQTTClient() {
     // Set up subscriptions
+    MQTTclient.subscribe(MQTTprefix + "/Set/#",1);
     MQTTclient.publish(MQTTprefix+"/connected", "online", true, 0);
 
     //publish MQTT discovery topics
@@ -3855,7 +3856,9 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     struct mg_mqtt_message *mm = (struct mg_mqtt_message *) ev_data;
     MG_INFO(("%lu RECEIVED %.*s <- %.*s", c->id, (int) mm->data.len,
              mm->data.ptr, (int) mm->topic.len, mm->topic.ptr));
-    mqtt_receive_callback(mm->topic.ptr, mm->data.ptr);
+    //somehow topic is not null terminated
+    String topic2 = String(mm->topic.ptr).substring(0,mm->topic.len);
+    mqtt_receive_callback(topic2, mm->data.ptr);
   } else if (ev == MG_EV_CLOSE) {
     MG_INFO(("%lu CLOSED", c->id));
     s_conn = NULL;  // Mark that we're closed
