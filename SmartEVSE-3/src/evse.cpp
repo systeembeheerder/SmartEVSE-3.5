@@ -3826,74 +3826,68 @@ const String& webServerRequest::value() {
 //end of wrapper
 
 #if MQTT
-///playground
-const char StrErrorMQTT[20][20] = { "MG_EV_ERROR", "MG_EV_OPEN", "MG_EV_POLL", "MG_EV_RESOLVE", "MG_EV_CONNECT", "MG_EV_ACCEPT", "MG_EV_TLS_HS", "MG_EV_READ", "MG_EV_WRITE", "MG_EV_CLOSE", "MG_EV_HTTP_MSG", "MG_EV_WS_OPEN", "MG_EV_WS_MSG", "MG_EV_WS_CTL", "MG_EV_MQTT_CMD", "MG_EV_MQTT_MSG", "MG_EV_MQTT_OPEN", "MG_EV_SNTP_TIME", "MG_EV_WAKEUP", "MG_EV_USER"};
-///end of playground
 char s_mqtt_url[80];
 //TODO perhaps integrate multiple fn callback functions?
 static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
-  _LOG_A("DINGO in fn_mqtt, ev=%i:%s.\n", ev,StrErrorMQTT[ev]);
-  if (ev == MG_EV_OPEN) {
-    MG_INFO(("%lu CREATED", c->id));
-    // c->is_hexdumping = 1;
-  } else if (ev == MG_EV_ERROR) {
-    // On error, log error message
-    MG_ERROR(("%lu ERROR %s", c->id, (char *) ev_data));
-  } else if (ev == MG_EV_CONNECT) {
-    // If target URL is SSL/TLS, command client connection to use TLS
-    if (mg_url_is_ssl(s_mqtt_url)) {
-      struct mg_str empty = { "", 0 };
-      struct mg_tls_opts opts = {.ca = empty, .cert = empty, .key = empty, .name = mg_url_host(s_mqtt_url)};
-      //struct mg_tls_opts opts = {.ca = empty};
-      mg_tls_init(c, &opts);
+    if (ev == MG_EV_OPEN) {
+        _LOG_V("%lu CREATED", c->id);
+        // c->is_hexdumping = 1;
+    } else if (ev == MG_EV_ERROR) {
+        // On error, log error message
+        _LOG_A("%lu ERROR %s", c->id, (char *) ev_data);
+    } else if (ev == MG_EV_CONNECT) {
+        // If target URL is SSL/TLS, command client connection to use TLS
+        if (mg_url_is_ssl(s_mqtt_url)) {
+            struct mg_str empty = { "", 0 };
+            struct mg_tls_opts opts = {.ca = empty, .cert = empty, .key = empty, .name = mg_url_host(s_mqtt_url)};
+            //struct mg_tls_opts opts = {.ca = empty};
+            mg_tls_init(c, &opts);
+        }
+    } else if (ev == MG_EV_MQTT_OPEN) {
+        // MQTT connect is successful
+        _LOG_V("%lu CONNECTED to %s", c->id, s_mqtt_url);
+        SetupMQTTClient();
+    } else if (ev == MG_EV_MQTT_MSG) {
+        // When we get echo response, print it
+        struct mg_mqtt_message *mm = (struct mg_mqtt_message *) ev_data;
+        _LOG_V("%lu RECEIVED %.*s <- %.*s", c->id, (int) mm->data.len, mm->data.ptr, (int) mm->topic.len, mm->topic.ptr);
+        //somehow topic is not null terminated
+        String topic2 = String(mm->topic.ptr).substring(0,mm->topic.len);
+        mqtt_receive_callback(topic2, mm->data.ptr);
+    } else if (ev == MG_EV_CLOSE) {
+        _LOG_V("%lu CLOSED", c->id);
+        s_conn = NULL;  // Mark that we're closed
     }
-  } else if (ev == MG_EV_MQTT_OPEN) {
-    // MQTT connect is successful
-    MG_INFO(("%lu CONNECTED to %s", c->id, s_mqtt_url));
-    SetupMQTTClient();
-  } else if (ev == MG_EV_MQTT_MSG) {
-    // When we get echo response, print it
-    struct mg_mqtt_message *mm = (struct mg_mqtt_message *) ev_data;
-    MG_INFO(("%lu RECEIVED %.*s <- %.*s", c->id, (int) mm->data.len,
-             mm->data.ptr, (int) mm->topic.len, mm->topic.ptr));
-    //somehow topic is not null terminated
-    String topic2 = String(mm->topic.ptr).substring(0,mm->topic.len);
-    mqtt_receive_callback(topic2, mm->data.ptr);
-  } else if (ev == MG_EV_CLOSE) {
-    MG_INFO(("%lu CLOSED", c->id));
-    s_conn = NULL;  // Mark that we're closed
-  }
-  //delete connection;
 }
 
 // Timer function - recreate client connection if it is closed
 static void timer_fn(void *arg) {
-  struct mg_mgr *mgr = (struct mg_mgr *) arg;
-  struct mg_mqtt_opts opts;
-  memset(&opts, 0, sizeof(opts));
-  opts.clean = true;
-  // set will topic
-  String temp = MQTTprefix + "/connected";
-  opts.topic = mg_str(temp.c_str());
-  opts.message = mg_str("offline");
-  opts.qos = 0;
-  opts.keepalive = 15;                                                          // so we will timeout after 15s
-  opts.version = 4;
+    struct mg_mgr *mgr = (struct mg_mgr *) arg;
+    struct mg_mqtt_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.clean = true;
+    // set will topic
+    String temp = MQTTprefix + "/connected";
+    opts.topic = mg_str(temp.c_str());
+    opts.message = mg_str("offline");
+    opts.qos = 0;
+    opts.keepalive = 15;                                                          // so we will timeout after 15s
+    opts.version = 4;
 
-  //prepare MQTT url
-  //mqtt[s]://[username][:password]@host.domain[:port]
-  String MQTTUri = "mqtt://";
-  if (MQTTuser != "") {
-      MQTTUri += MQTTuser;
-      if (MQTTpassword != "") {
-          MQTTUri += ":" + MQTTpassword;
-      }
-      MQTTUri += "@";
-  }
-  MQTTUri += MQTTHost + ":" + String(MQTTPort);
-  strncpy(s_mqtt_url, MQTTUri.c_str(), sizeof(s_mqtt_url)-1);
+    //prepare MQTT url
+    //mqtt[s]://[username][:password]@host.domain[:port]
+    String MQTTUri = "mqtt://";
+    if (MQTTuser != "") {
+        MQTTUri += MQTTuser;
+        if (MQTTpassword != "") {
+            MQTTUri += ":" + MQTTpassword;
+        }
+        MQTTUri += "@";
+    }
+    MQTTUri += MQTTHost + ":" + String(MQTTPort);
+    strncpy(s_mqtt_url, MQTTUri.c_str(), sizeof(s_mqtt_url)-1);
 
-  if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_mqtt_url, &opts, fn_mqtt, NULL);
+    if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_mqtt_url, &opts, fn_mqtt, NULL);
 }
 #endif
 
@@ -4701,8 +4695,8 @@ void onWifiEvent(WiFiEvent_t event) {
 #if MQTT
             mg_timer_add(&mgr, 3000, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, timer_fn, &mgr);
 #endif
-            //mg_log_set(MG_LL_NONE);
-            mg_log_set(MG_LL_VERBOSE);
+            mg_log_set(MG_LL_NONE);
+            //mg_log_set(MG_LL_VERBOSE);
 
             if (TZinfo == "") {
                 bool done = false;              // Event handler flips it to true
