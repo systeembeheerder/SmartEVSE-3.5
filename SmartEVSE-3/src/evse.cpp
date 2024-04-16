@@ -48,7 +48,7 @@ struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
 
-#if MQTT2
+#if MQTT
 // MQTT connection info
 String MQTTuser;
 String MQTTpassword;
@@ -2473,7 +2473,7 @@ uint8_t PollEVNode = NR_EVSES, updated = 0;
 
 }
 
-#if MQTT2
+#if MQTT
 void mqtt_receive_callback(const String &topic, const String &payload) {
     if (topic == MQTTprefix + "/Set/Mode") {
         if (payload == "Off") {
@@ -3857,7 +3857,7 @@ const String& webServerRequest::value() {
 }
 //end of wrapper
 
-#if MQTT2
+#if MQTT
 ///playground
 static const char *s_sub_topic = "mg/+/test";     // Publish topic
 static const char *s_pub_topic = "mg/clnt/test";  // Subscribe topic
@@ -4757,7 +4757,7 @@ void onWifiEvent(WiFiEvent_t event) {
             delay(1000);
             //mongoose
             mg_mgr_init(&mgr);  // Initialise event manager
-#if MQTT2
+#if MQTT
             mg_timer_add(&mgr, 3000, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, timer_fn, &mgr);
 #endif
             //mg_log_set(MG_LL_NONE);
