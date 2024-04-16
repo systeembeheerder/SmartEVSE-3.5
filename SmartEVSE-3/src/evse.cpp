@@ -2599,7 +2599,6 @@ public:
 };
 
 void MQTTclient_t::publish(const String &topic, const String &payload, bool retained, int qos) {
-  return; //TODO
   if (s_conn) {
     struct mg_mqtt_opts pub_opts;
     memset(&pub_opts, 0, sizeof(pub_opts));
@@ -2617,7 +2616,6 @@ void MQTTclient_t::publish(const String &topic, const String &payload, bool reta
 }
 
 void MQTTclient_t::subscribe(const String &topic, int qos) {
-    return;//TODO
     struct mg_mqtt_opts sub_opts;
     memset(&sub_opts, 0, sizeof(sub_opts));
     sub_opts.topic.ptr = topic.c_str();
