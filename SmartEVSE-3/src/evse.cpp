@@ -2640,20 +2640,10 @@ void SetupMQTTClient() {
     if (MQTTHost == "")
         return;
 
-    //MQTTclient.setWill(String(MQTTprefix + "/connected").c_str(), "offline", true, 0);
-
-    // Keepalive every 15s
-    //MQTTclient.setKeepAlive(15);
-
-    //if (MQTTclient.connected()) {
-        // Set up global subscribe callback
-        //MQTTclient.onMessage(mqtt_receive_callback);
 
         // Set up subscriptions
 //const char *s_sub_topic = String(MQTTprefix + "/Set/#").c_str();
-//const char *s_pub_topic = String(MQTTprefix+"/connected").c_str();
-        //MQTTclient.publish(MQTTprefix+"/connected", "online", true, 0);
-    //}
+    MQTTclient.publish(MQTTprefix+"/connected", "online", true, 0);
 
     //publish MQTT discovery topics
     //we need something to make all this JSON stuff readable, without doing all this assign and serialize stuff
@@ -3865,8 +3855,6 @@ static const char *s_mqtt_url = "mqtt://10.0.0.69:1883";
 //TODO perhaps integrate multiple fn callback functions?
 static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
   _LOG_A("DINGO in fn_mqtt, ev=%i:%s.\n", ev,StrErrorMQTT[ev]);
-  //MQTTclient_t* MQTTclient = new MQTTclient_t();
-  //MQTTclient* connection = new MQTTclient();
   MQTTclient.setConnection(c);
   if (ev == MG_EV_OPEN) {
     MG_INFO(("%lu CREATED", c->id));
@@ -3943,9 +3931,12 @@ src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num
   struct mg_mqtt_opts opts;
   memset(&opts, 0, sizeof(opts));
   opts.clean = true;
-//  opts.topic = mg_str(s_pub_topic);
-//  opts.message = mg_str("bye"); //TODO do we have to send a disconnect message?
+  // set will topic
+  String temp = MQTTprefix + "/connected";
+  opts.topic = mg_str(temp.c_str());
+  opts.message = mg_str("offline");
   opts.qos = 0;
+  opts.keepalive = 15;                                                          // so we will timeout after 15s
   opts.version = 4;
   if (s_conn == NULL) s_conn = mg_mqtt_connect(mgr, s_mqtt_url, &opts, fn_mqtt, NULL);
 }
@@ -4813,7 +4804,6 @@ void WiFiSetup(void) {
     MQTTUri += MQTTHost + ":" + String(MQTTPort);
     //s_mqtt_url = MQTTUri.c_str();
     _LOG_A("DINGO: s_mqtt_url=%s.\n", s_mqtt_url);
-    //MQTTclient.setUrl(s_mqtt_url);
 #endif
     //wifiManager.setDebugOutput(true);
     wifiManager.setMinimumSignalQuality(-1);
