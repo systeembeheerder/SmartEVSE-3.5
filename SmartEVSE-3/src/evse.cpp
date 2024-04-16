@@ -3906,28 +3906,6 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
 // Timer function - recreate client connection if it is closed
 static void timer_fn(void *arg) {
   struct mg_mgr *mgr = (struct mg_mgr *) arg;
-  //static const char *s_pub_topic = "mg/clnt/test";  // TODO set "online" and/or will ....
-/*src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::user' [-Wmissing-field-initializers]
-                               .message = mg_str("bye")};
-                                                       ^
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::pass' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::client_id' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::topic' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::message' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::qos' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::version' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::keepalive' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::retain' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::props' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num_props' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::will_props' [-Wmissing-field-initializers]
-src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num_will_props' [-Wmissing-field-initializers]
-*/
-/*  struct mg_mqtt_opts opts = {.clean = true,
-                              .topic = mg_str(s_pub_topic),
-                              .message = mg_str("bye"),
-                              .qos = 0,
-                              .version = 4 }; */
   struct mg_mqtt_opts opts;
   memset(&opts, 0, sizeof(opts));
   opts.clean = true;
