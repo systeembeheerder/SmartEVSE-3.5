@@ -48,7 +48,7 @@ struct mg_mgr mgr;  // Mongoose event manager. Holds all connections
 
 String APhostname = "SmartEVSE-" + String( MacId() & 0xffff, 10);           // SmartEVSE access point Name = SmartEVSE-xxxxx
 
-#if MQTT
+#if MQTT2
 // MQTT connection info
 String MQTTuser;
 String MQTTpassword;
@@ -2473,7 +2473,7 @@ uint8_t PollEVNode = NR_EVSES, updated = 0;
 
 }
 
-#if MQTT
+#if MQTT2
 void mqtt_receive_callback(const String &topic, const String &payload) {
     if (topic == MQTTprefix + "/Set/Mode") {
         if (payload == "Off") {
@@ -2599,16 +2599,21 @@ public:
 };
 
 void MQTTclient_t::publish(const String &topic, const String &payload, bool retained, int qos) {
+  return; //TODO
+  if (s_conn) {
     struct mg_mqtt_opts pub_opts;
     memset(&pub_opts, 0, sizeof(pub_opts));
     //struct mg_str subt = mg_str(s_sub_topic);
     //struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
-    pub_opts.topic.ptr = topic.c_str();
-    pub_opts.topic.len = topic.length();
-    pub_opts.message.ptr = payload.c_str();
-    pub_opts.message.len = payload.length();
+    //pub_opts.topic.ptr = topic.c_str();
+    //pub_opts.topic.len = topic.length();
+    pub_opts.topic = mg_str(topic.c_str());
+    pub_opts.message = mg_str(payload.c_str());
+    //pub_opts.message.ptr = payload.c_str();
+    //pub_opts.message.len = payload.length();
     pub_opts.qos = qos, pub_opts.retain = retained;
     mg_mqtt_pub(s_conn, &pub_opts);
+  }
 }
 
 void MQTTclient_t::subscribe(const String &topic, int qos) {
@@ -3852,11 +3857,19 @@ const String& webServerRequest::value() {
 }
 //end of wrapper
 
-#if MQTT
-static const char *s_mqtt_url;
+#if MQTT2
+///playground
+static const char *s_sub_topic = "mg/+/test";     // Publish topic
+static const char *s_pub_topic = "mg/clnt/test";  // Subscribe topic
+static int s_qos = 1;                             // MQTT QoS
+const char StrErrorMQTT[20][20] = { "MG_EV_ERROR", "MG_EV_OPEN", "MG_EV_POLL", "MG_EV_RESOLVE", "MG_EV_CONNECT", "MG_EV_ACCEPT", "MG_EV_TLS_HS", "MG_EV_READ", "MG_EV_WRITE", "MG_EV_CLOSE", "MG_EV_HTTP_MSG", "MG_EV_WS_OPEN", "MG_EV_WS_MSG", "MG_EV_WS_CTL", "MG_EV_MQTT_CMD", "MG_EV_MQTT_MSG", "MG_EV_MQTT_OPEN", "MG_EV_SNTP_TIME", "MG_EV_WAKEUP", "MG_EV_USER"};
+///end of playground
+static const char *s_mqtt_url = "mqtt://10.0.0.69:1883";
+//static const char *s_mqtt_url = "mqtt://laptop-hans.lan:1883";
+//static const char *s_mqtt_url = "mqtt://broker.hivemq.com:1883";
 //TODO perhaps integrate multiple fn callback functions?
 static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
-  _LOG_A("DINGO in fn_mqtt, ev=%i.\n", ev);
+  _LOG_A("DINGO in fn_mqtt, ev=%i:%s.\n", ev,StrErrorMQTT[ev]);
   //MQTTclient_t* MQTTclient = new MQTTclient_t();
   //MQTTclient* connection = new MQTTclient();
   MQTTclient.setConnection(c);
@@ -3876,11 +3889,11 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     }
   } else if (ev == MG_EV_MQTT_OPEN) {
     // MQTT connect is successful
-    //struct mg_str subt = mg_str(s_sub_topic);
-    //struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
+    struct mg_str subt = mg_str(s_sub_topic);
+    struct mg_str pubt = mg_str(s_pub_topic), data = mg_str("hello");
     MG_INFO(("%lu CONNECTED to %s", c->id, s_mqtt_url));
     SetupMQTTClient();
-/*    struct mg_mqtt_opts sub_opts;
+    struct mg_mqtt_opts sub_opts;
     memset(&sub_opts, 0, sizeof(sub_opts));
     sub_opts.topic = subt;
     sub_opts.qos = s_qos;
@@ -3893,7 +3906,7 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
     pub_opts.qos = s_qos, pub_opts.retain = false;
     mg_mqtt_pub(c, &pub_opts);
     MG_INFO(("%lu PUBLISHED %.*s -> %.*s", c->id, (int) data.len, data.ptr,
-             (int) pubt.len, pubt.ptr));*/
+             (int) pubt.len, pubt.ptr));
   } else if (ev == MG_EV_MQTT_MSG) {
     // When we get echo response, print it
     struct mg_mqtt_message *mm = (struct mg_mqtt_message *) ev_data;
@@ -3910,7 +3923,7 @@ static void fn_mqtt(struct mg_connection *c, int ev, void *ev_data) {
 // Timer function - recreate client connection if it is closed
 static void timer_fn(void *arg) {
   struct mg_mgr *mgr = (struct mg_mgr *) arg;
-  static const char *s_pub_topic = "mg/clnt/test";  // TODO set "online" and/or will ....
+  //static const char *s_pub_topic = "mg/clnt/test";  // TODO set "online" and/or will ....
 /*src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::user' [-Wmissing-field-initializers]
                                .message = mg_str("bye")};
                                                        ^
@@ -3933,6 +3946,7 @@ src/evse.cpp:3941:55: warning: missing initializer for member 'mg_mqtt_opts::num
                               .qos = 0,
                               .version = 4 }; */
   struct mg_mqtt_opts opts;
+  memset(&opts, 0, sizeof(opts));
   opts.clean = true;
   opts.topic = mg_str(s_pub_topic);
   opts.message = mg_str("bye");
@@ -4743,11 +4757,11 @@ void onWifiEvent(WiFiEvent_t event) {
             delay(1000);
             //mongoose
             mg_mgr_init(&mgr);  // Initialise event manager
-#if MQTT
+#if MQTT2
             mg_timer_add(&mgr, 3000, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, timer_fn, &mgr);
 #endif
-            mg_log_set(MG_LL_NONE);
-            //mg_log_set(MG_LL_VERBOSE);
+            //mg_log_set(MG_LL_NONE);
+            mg_log_set(MG_LL_VERBOSE);
 
             if (TZinfo == "") {
                 bool done = false;              // Event handler flips it to true
@@ -4802,7 +4816,7 @@ void WiFiSetup(void) {
         MQTTUri += "@";
     }
     MQTTUri += MQTTHost + ":" + String(MQTTPort);
-    s_mqtt_url = MQTTUri.c_str();
+    //s_mqtt_url = MQTTUri.c_str();
     _LOG_A("DINGO: s_mqtt_url=%s.\n", s_mqtt_url);
     //MQTTclient.setUrl(s_mqtt_url);
 #endif
@@ -5104,6 +5118,8 @@ void loop() {
     if (!LocalTimeSet) {
         _LOG_A("Time not synced with NTP yet.\n");
     }
+
+    _LOG_A("DINGO: MQTT url=%s, connected:%i.\n", s_mqtt_url, MQTTclient.connected());
 
 #ifndef DEBUG_DISABLED
     // Remote debug over WiFi
